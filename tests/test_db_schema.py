@@ -1,5 +1,3 @@
-"""ทดสอบกับ PostgreSQL จริง — ต้องรัน `docker compose up -d` และ `alembic upgrade head` ก่อน"""
-
 import asyncio
 from datetime import UTC, date, datetime
 
@@ -15,7 +13,6 @@ from app.db.models import Task, User
 
 
 def run_in_rollback(scenario):
-    """รัน scenario ใน transaction แล้ว rollback ทิ้ง → DB สะอาดเหมือนเดิมทุกครั้ง"""
 
     async def main():
         url = Settings(_env_file=None).database_url.get_secret_value()
