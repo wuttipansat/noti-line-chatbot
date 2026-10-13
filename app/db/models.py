@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import ClassVar
 
 from sqlalchemy import (
     BigInteger,
@@ -22,6 +23,7 @@ from app.db.base import Base
 
 class User(Base):
     __tablename__ = "users"
+    __mapper__args__: ClassVar[dict] = {"eager_defaults": True}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     line_user_id: Mapped[str] = mapped_column(Text, unique=True)
@@ -38,6 +40,7 @@ class User(Base):
 
 class Task(Base):
     __tablename__ = "tasks"
+    __mapper__args__: ClassVar[dict] = {"eager_defaults": True}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(
