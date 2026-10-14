@@ -1,4 +1,3 @@
-import asyncio
 from datetime import UTC, date, datetime
 
 import pytest
@@ -6,32 +5,10 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import Settings
 from app.db.models import Task, User
-
-
-def run_in_rollback(scenario):
-
-    async def main():
-        url = Settings(_env_file=None).database_url.get_secret_value()
-        engine = create_async_engine(url)
-        try:
-            async with engine.connect() as conn:
-                outer = await conn.begin()
-                session = AsyncSession(
-                    bind=conn, join_transaction_mode="create_savepoint"
-                )
-                try:
-                    await scenario(session)
-                finally:
-                    await session.close()
-                    await outer.rollback()
-        finally:
-            await engine.dispose()
-
-    asyncio.run(main())
+from tests.helpers import run_in_rollback
 
 
 async def make_user(session: AsyncSession, line_user_id: str = "U-test-a") -> User:

@@ -1,4 +1,3 @@
-from app.db import models
 from app.db.base import Base
 
 
