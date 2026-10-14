@@ -1,8 +1,9 @@
 from datetime import date, datetime
-from typing import ClassVar
+from typing import ClassVar, Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -16,6 +17,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -23,7 +25,7 @@ from app.db.base import Base
 
 class User(Base):
     __tablename__ = "users"
-    __mapper__args__: ClassVar[dict] = {"eager_defaults": True}
+    __mapper_args__: ClassVar[dict] = {"eager_defaults": True}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     line_user_id: Mapped[str] = mapped_column(Text, unique=True)
@@ -40,7 +42,7 @@ class User(Base):
 
 class Task(Base):
     __tablename__ = "tasks"
-    __mapper__args__: ClassVar[dict] = {"eager_defaults": True}
+    __mapper_args__: ClassVar[dict] = {"eager_defaults": True}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(
@@ -84,3 +86,37 @@ class Task(Base):
             postgresql_where=text("status <> 'done' AND deleted_at IS NULL"),
         ),
     )
+
+class InboundEvent(Base):
+    """Durable inbox: every LINE webhook event is saved here before we reply 200."""
+
+    __tablename__ = "inbound_events"
+    __mapper_args__: ClassVar[dict] = {"eager_defaults": True}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    webhook_event_id: Mapped[str] = mapped_column(Text, unique=True)
+    line_user_id: Mapped[str] = mapped_column(Text)
+    event_type: Mapped[str] = mapped_column(Text)
+    event_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    is_redelivery: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    reply_token: Mapped[str | None] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(Text, server_default="received")
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    error: Mapped[str | None] = mapped_column(Text)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('received', 'processing', 'done', 'skipped', 'failed')",
+            name="status_allowed",
+        ),
+        Index(
+            "ix_inbound_pending",
+            "line_user_id",
+            "event_ts",
+            postgresql_where=text("status IN ('received', 'processing')"),
+        ),
+    )
+
+    

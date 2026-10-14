@@ -3,10 +3,11 @@ from functools import partial
 
 from fastapi import FastAPI, Request, Response
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app.config import Settings, get_settings
 from app.health import check_database, check_redis, run_checks
+from app.line.webhook import router as line_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -23,6 +24,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redis = Redis.from_url(
             settings.redis_url, socket_connect_timeout=2, socket_timeout=2
         )
+        app.state.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+
         app.state.readiness_checks = {
             "database": partial(check_database, engine),
             "redis": partial(check_redis, redis),
@@ -32,6 +35,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await engine.dispose()
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    app.state.settings = settings
+    app.include_router(line_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

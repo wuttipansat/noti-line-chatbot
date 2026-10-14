@@ -1,8 +1,9 @@
+from app.db import models
 from app.db.base import Base
 
 
 def test_tables_are_registered():
-    assert set(Base.metadata.tables) == {"users", "tasks"}
+    assert set(Base.metadata.tables) == {"users", "tasks", "inbound_events"}
 
 
 def test_task_belongs_to_user_and_cascades():
