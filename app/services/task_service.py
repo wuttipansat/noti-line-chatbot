@@ -1,10 +1,12 @@
-from datetime import UTC, date, datetime
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, time, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Task, User
+from app.services.dates import day_start_utc, local_now, local_today
 
 LOW, MEDIUM, HIGH = 1, 2, 3
 MAX_TITLE_LENGTH = 200
@@ -117,7 +119,7 @@ async def list_open_tasks(session: AsyncSession, user_id: int) -> list[Task]:
             Task.user_id == user_id,
             Task.status != "done",
             Task.deleted_at.is_(None),
-        )
+        ).order_by(Task.task_no)
     )
     return list(result.scalars())
 
@@ -135,3 +137,71 @@ async def delete_task(session: AsyncSession, user_id: int, task_no: int) -> None
     task.deleted_at = _now()
     task.version += 1
     await session.flush()
+
+@dataclass
+class TodayView:
+    local_date: date
+    overdue: list[Task]
+    today: list[Task]
+
+async def _user_timezone(session: AsyncSession, user_id: int) -> str:
+    return await session.scalar(select(User.timezone).where(User.id == user_id))
+
+def _open_tasks_of(user_id: int):
+    return select(Task).where(
+        Task.user_id == user_id,
+        Task.status != "done",
+        Task.deleted_at.is_(None),
+    )
+
+def _due_between(first_day: date, end_day, tz: str):
+    return or_(
+        and_(Task.due_date >= first_day, Task.due_date < end_day),
+        and_(
+            Task.due_at >= day_start_utc(first_day, tz),
+            Task.due_at < day_start_utc(end_day, tz)
+        )
+    )
+
+def _sort_by_deadline(tasks: list[Task], tz: str) -> list[Task]:
+    def key(task: Task) -> tuple:
+        if task.due_at is not None:
+            local = local_now(task.due_at, tz)
+            return (local.date(), 0, local.time(), task.task_no)
+        return (task.due_date, 1, time.min, task.task_no)
+    return sorted(tasks, key=key)
+
+async def today_view(session: AsyncSession, user_id: int, now: datetime) -> TodayView:
+    tz = await _user_timezone(session, user_id)
+    today = local_today(now, tz)
+    tomorrow = today + timedelta(days=1)
+
+    overdue_filter = or_(
+        Task.due_date < today,
+        Task.due_at < day_start_utc(today, tz)
+    )
+
+    overdue = await session.scalars(_open_tasks_of(user_id).where(overdue_filter))
+
+    due_today = await session.scalars(
+        _open_tasks_of(user_id).where(_due_between(today, tomorrow, tz))
+    )
+
+    return TodayView(
+        local_date=today,
+        overdue=_sort_by_deadline(list(overdue), tz),
+        today=_sort_by_deadline(list(due_today), tz),
+    )
+
+async def week_view(
+        session: AsyncSession, user_id: int, now: datetime, days: int = 7
+) -> list[Task]:
+    tz = await _user_timezone(session, user_id)
+    today = local_today(now, tz)
+    result = await session.scalars(
+        _open_tasks_of(user_id).where(
+            _due_between(today, today + timedelta(days=days), tz)
+        )
+    )
+
+    return _sort_by_deadline(list(result), tz)
