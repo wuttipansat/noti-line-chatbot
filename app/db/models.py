@@ -32,6 +32,8 @@ class User(Base):
     timezone: Mapped[str] = mapped_column(Text, server_default="Asia/Bangkok")
     next_task_no: Mapped[int] = mapped_column(Integer, server_default="1")
     is_active: Mapped[bool] = mapped_column(server_default=text("true"))
+    inbox_lease_owner: Mapped[str | None] = mapped_column(Text)
+    inbox_lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -119,4 +121,3 @@ class InboundEvent(Base):
         ),
     )
 
-    

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from app.config import Settings, get_settings
 from app.health import check_database, check_redis, run_checks
 from app.line.webhook import router as line_router
+from app.worker import enqueue_inbox
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -36,6 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.state.settings = settings
+    app.state.enqueue_inbox = enqueue_inbox
     app.include_router(line_router)
 
     @app.get("/health")

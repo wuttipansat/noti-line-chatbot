@@ -1,6 +1,6 @@
 import asyncio
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from app.config import Settings
 
@@ -27,3 +27,15 @@ def run_in_rollback(scenario):
             await engine.dispose()
 
     asyncio.run(main())
+
+def run_committed(scenario):
+    async def main():
+        engine = create_async_engine(database_url())
+        try:
+            await scenario(async_sessionmaker(engine, expire_on_commit=False))
+        finally:
+            await engine.dispose()
+
+    asyncio.run(main())
+
+

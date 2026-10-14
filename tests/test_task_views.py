@@ -1,5 +1,3 @@
-"""Today/overdue/week views against real PostgreSQL."""
-
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
