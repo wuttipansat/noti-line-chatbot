@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     line_channel_secret: SecretStr | None = None
     line_channel_access_token: SecretStr | None = None
+    line_api_base_url: str = "https://api.line.me"
 
     @field_validator("default_timezone")
     @classmethod

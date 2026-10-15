@@ -1,3 +1,4 @@
+import uuid
 from datetime import date, datetime
 from typing import ClassVar, Any
 
@@ -14,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     func,
     text,
 )
@@ -121,3 +123,37 @@ class InboundEvent(Base):
         ),
     )
 
+class OutboundMessage(Base):
+    """Durable outbox: every message we want to send is saved here first."""
+    __tablename__ = "outbound_messages"
+    __mapper_args__: ClassVar[dict] = {"eager_defaults": True}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    idempotency_key: Mapped[str] = mapped_column(Text, unique=True)
+    critical: Mapped[str | None] = mapped_column(Text)
+    reply_token: Mapped[str | None] = mapped_column(Text)
+    reply_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    messages: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    retry_key: Mapped[uuid.UUID] = mapped_column(Uuid, default=uuid.uuid4)
+    status: Mapped[str] = mapped_column(Text, server_default="pending")
+    channel_used: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'sending', 'sent', 'unknown', 'dead', 'cancelled')",
+            name="status_allowed",
+
+        ),
+        Index(
+            "ix_outbound_due",
+            "next_attempt_at",
+            postgresql_where=text("status IN ('pending', 'sending')"),
+        ),
+    )
+    
