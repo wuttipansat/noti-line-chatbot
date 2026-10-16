@@ -24,6 +24,7 @@ from app.line.client import LineClient
 from app.services.handlers import acknowledge
 from app.services.inbox_service import process_user_inbox, stale_line_user_ids
 from app.services.outbox_service import deliver, due_outbox_ids
+from app.bot.handler import handle_event
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -33,8 +34,6 @@ celery_app.conf.update(
     task_ignore_result=True,
     timezone="UTC",
     broker_connection_retry_on_startup=True,
-    # The webhook must answer LINE fast: if Redis is down, fail in ~0.1 s
-    # instead of retrying for seconds (the sweeper picks the event up later).
     task_publish_retry=False,
     broker_transport_options={
         "socket_connect_timeout": 2,
@@ -80,7 +79,7 @@ async def _process(line_user_id: str) -> int:
     engine, sessions = _sessions()
     try:
         handled = await process_user_inbox(
-            sessions, line_user_id, owner=WORKER_NAME, handler=acknowledge
+            sessions, line_user_id, owner=WORKER_NAME, handler=handle_event
         )
         async with sessions() as session:
             user_id = await session.scalar(
