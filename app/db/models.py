@@ -131,7 +131,7 @@ class OutboundMessage(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     idempotency_key: Mapped[str] = mapped_column(Text, unique=True)
-    critical: Mapped[str | None] = mapped_column(Text)
+    critical: Mapped[bool] = mapped_column(Boolean, server_default=text("false")) 
     reply_token: Mapped[str | None] = mapped_column(Text)
     reply_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     messages: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)

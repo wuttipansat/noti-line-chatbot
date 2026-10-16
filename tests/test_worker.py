@@ -17,3 +17,9 @@ def test_enqueue_inbox_sends_the_user_id(monkeypatch):
     worker.enqueue_inbox("U-alice")
 
     assert sent == ["U-alice"]
+
+def test_outbox_sweeper_runs_every_15_seconds():
+    schedule = worker.celery_app.conf.beat_schedule["send-due-outbox-every-15s"]
+
+    assert schedule["task"] == "outbox.sweep"
+    assert schedule["schedule"] == 15.0

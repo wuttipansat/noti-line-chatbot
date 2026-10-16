@@ -25,7 +25,7 @@ def upgrade() -> None:
     sa.Column('id', sa.BigInteger(), nullable=False),
     sa.Column('user_id', sa.BigInteger(), nullable=False),
     sa.Column('idempotency_key', sa.Text(), nullable=False),
-    sa.Column('critical', sa.Text(), nullable=True),
+    sa.Column('critical', sa.Boolean(), server_default=sa.text('false'), nullable=False),
     sa.Column('reply_token', sa.Text(), nullable=True),
     sa.Column('reply_deadline', sa.DateTime(timezone=True), nullable=True),
     sa.Column('messages', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
