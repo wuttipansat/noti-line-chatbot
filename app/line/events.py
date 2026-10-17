@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
+
 def to_inbox_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
     """Keep only events we can process: they need an id and a 1:1 chat user."""
     rows = []

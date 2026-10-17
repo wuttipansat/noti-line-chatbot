@@ -22,17 +22,19 @@ STALE_AFTER = timedelta(seconds=60)
 
 Handler = Callable[[AsyncSession, User, InboundEvent], Awaitable[None]]
 
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
+
 async def acquire_lease(
-        session: AsyncSession, user_id: int, owner: str, now: datetime
+    session: AsyncSession, user_id: int, owner: str, now: datetime
 ) -> bool:
     result = await session.execute(
         update(User)
         .where(
             User.id == user_id,
-            or_(User.inbox_lease_until.is_(None), User.inbox_lease_until < now)
+            or_(User.inbox_lease_until.is_(None), User.inbox_lease_until < now),
         )
         .values(
             inbox_lease_owner=owner,
@@ -43,17 +45,17 @@ async def acquire_lease(
 
     return result.scalar_one_or_none() is not None
 
-async def release_lease(
-        session: AsyncSession, user_id: int, owner: str
-) -> None:
+
+async def release_lease(session: AsyncSession, user_id: int, owner: str) -> None:
     await session.execute(
         update(User)
         .where(User.id == user_id, User.inbox_lease_owner == owner)
         .values(inbox_lease_owner=None, inbox_lease_until=None)
     )
 
+
 async def next_pending_event(
-        session: AsyncSession, line_user_id: str
+    session: AsyncSession, line_user_id: str
 ) -> InboundEvent | None:
     return await session.scalar(
         select(InboundEvent)
@@ -65,12 +67,14 @@ async def next_pending_event(
         .limit(1)
     )
 
+
 async def log_only(session: AsyncSession, user: User, event: InboundEvent) -> None:
     text = (event.payload.get("message") or {}).get("text")
     logger.info("user %s sent %s: %r", user.line_user_id, event.event_type, text)
 
+
 async def _process_one(
-        sessions: async_sessionmaker, user: User, event_id: int, handler: Handler
+    sessions: async_sessionmaker, user: User, event_id: int, handler: Handler
 ) -> None:
     try:
         async with sessions.begin() as session:
@@ -87,12 +91,13 @@ async def _process_one(
             event.attempts += 1
             event.error = type(exc).__name__
 
+
 async def process_user_inbox(
-        sessions: async_sessionmaker,
-        line_user_id: str,
-        owner: str,
-        handler: Handler = log_only,
-        now: Callable[[], datetime] = _now,
+    sessions: async_sessionmaker,
+    line_user_id: str,
+    owner: str,
+    handler: Handler = log_only,
+    now: Callable[[], datetime] = _now,
 ) -> int:
     handled = 0
     async with sessions.begin() as session:
@@ -118,6 +123,7 @@ async def process_user_inbox(
         async with sessions.begin() as session:
             if await next_pending_event(session, line_user_id) is None:
                 return handled
+
 
 async def stale_line_user_ids(session: AsyncSession, now: datetime) -> list[str]:
     result = await session.scalars(

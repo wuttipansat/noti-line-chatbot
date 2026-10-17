@@ -1,8 +1,6 @@
-"""Understand a text message without AI: a small set of fixed commands.
-"""
-
 import re
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Literal
 
 Action = Literal["help", "add", "today", "week", "all", "done", "unknown"]
@@ -13,6 +11,10 @@ class Command:
     action: Action
     title: str | None = None
     task_no: int | None = None
+    due_date: date | None = None
+    due_at: datetime | None = None
+    priority: int = 2
+    estimated_minutes: int | None = None
 
 
 HELP_WORDS = {"help", "ช่วยเหลือ", "วิธีใช้", "เมนู"}

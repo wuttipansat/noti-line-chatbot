@@ -9,9 +9,11 @@ import base64
 import hashlib
 import hmac
 
+
 def compute_signature(channel_secret: str, body: bytes) -> str:
     digest = hmac.new(channel_secret.encode(), body, hashlib.sha256).digest()
     return base64.b64encode(digest).decode()
+
 
 def is_valid_signature(channel_secret: str, body: bytes, signature: str | None) -> bool:
     if not signature:

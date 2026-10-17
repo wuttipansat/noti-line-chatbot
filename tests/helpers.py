@@ -4,8 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 
 from app.config import Settings
 
+
 def database_url() -> str:
     return Settings(_env_file=None).database_url.get_secret_value()
+
 
 def run_in_rollback(scenario):
 
@@ -28,6 +30,7 @@ def run_in_rollback(scenario):
 
     asyncio.run(main())
 
+
 def run_committed(scenario):
     async def main():
         engine = create_async_engine(database_url())
@@ -37,5 +40,3 @@ def run_committed(scenario):
             await engine.dispose()
 
     asyncio.run(main())
-
-

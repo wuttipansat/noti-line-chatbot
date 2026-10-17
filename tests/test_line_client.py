@@ -10,6 +10,7 @@ from app.line.client import LineClient
 
 RETRY_KEY = UUID("123e4567-e89b-42d3-a456-426614174000")
 
+
 def run_with_fake_line(status_code: int, call):
     requests: list[httpx2.Request] = []
 
@@ -24,6 +25,7 @@ def run_with_fake_line(status_code: int, call):
 
     return asyncio.run(main()), requests
 
+
 def test_reply_request():
     messages = [{"type": "text", "text": "hello"}]
 
@@ -37,18 +39,18 @@ def test_reply_request():
     assert "x-line-retry-key" not in request.headers
     assert json.loads(request.content) == {
         "replyToken": "reply-token-1",
-        "messages": messages
+        "messages": messages,
     }
+
 
 def test_push_request_carries_retry_key():
     messages = [{"type": "text", "text": "hi"}]
 
     status, [request] = run_with_fake_line(
-            409, lambda client: client.push("U-alice", messages, RETRY_KEY)
+        409, lambda client: client.push("U-alice", messages, RETRY_KEY)
     )
 
     assert status == 409
     assert str(request.url) == "https://api.line.me/v2/bot/message/push"
     assert request.headers["x-line-retry-key"] == str(RETRY_KEY)
     assert json.loads(request.content) == {"to": "U-alice", "messages": messages}
-    

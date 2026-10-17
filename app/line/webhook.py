@@ -13,6 +13,7 @@ from app.line.signature import is_valid_signature
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
 @router.post("/webhook/line")
 async def line_webhook(request: Request) -> dict[str, int]:
     settings = request.app.state.settings
@@ -45,5 +46,3 @@ async def line_webhook(request: Request) -> dict[str, int]:
             logger.exception("could not enqueue inbox for %s", line_user_id)
 
     return {"accepted": len(rows)}
-
-

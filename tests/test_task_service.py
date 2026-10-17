@@ -10,6 +10,7 @@ from app.db.models import Task, User
 from app.services import task_service as ts
 from tests.helpers import database_url, run_in_rollback
 
+
 def test_get_or_create_user_is_idempotent():
     async def scenario(session):
         first = await ts.get_or_create_user(session, "U-alice")
@@ -23,20 +24,22 @@ def test_get_or_create_user_is_idempotent():
 
     run_in_rollback(scenario)
 
+
 def test_task_numbers_run_per_user():
     async def scenario(session):
         alice = await ts.get_or_create_user(session, "U-alice")
-        bob = await  ts.get_or_create_user(session, "U-bob")
+        bob = await ts.get_or_create_user(session, "U-bob")
 
         a1 = await ts.add_task(session, alice.id, "อ่าน paper")
         a2 = await ts.add_task(session, alice.id, "ส่งรายงาน")
-        b1 = await ts.add_task(session, bob.id,  "ซื้อของ")
+        b1 = await ts.add_task(session, bob.id, "ซื้อของ")
 
         assert (a1.task_no, a2.task_no, b1.task_no) == (1, 2, 1)
         assert a1.status == "todo"
         assert a1.priority == ts.MEDIUM
 
     run_in_rollback(scenario)
+
 
 def test_add_task_cleans_title():
     async def scenario(session):
@@ -46,6 +49,7 @@ def test_add_task_cleans_title():
         assert task.title == "อ่าน paper"
 
     run_in_rollback(scenario)
+
 
 @pytest.mark.parametrize(
     "kwargs",
@@ -59,10 +63,9 @@ def test_add_task_cleans_title():
             "due_date": date(2026, 11, 15),
             "due_at": datetime(2026, 11, 15, tzinfo=UTC),
         },
-        {"title": "ok", "due_at": datetime(2026, 11, 15, 14, 0)}, #No TZ for test
+        {"title": "ok", "due_at": datetime(2026, 11, 15, 14, 0)},  # No TZ for test
     ],
 )
-
 def test_add_task_rejects_bad_input_without_using_a_number(kwargs):
     async def scenario(session):
         user = await ts.get_or_create_user(session, "U-alice")
@@ -74,6 +77,7 @@ def test_add_task_rejects_bad_input_without_using_a_number(kwargs):
         assert good.task_no == 1
 
     run_in_rollback(scenario)
+
 
 def test_complete_task_is_idempotent():
     async def scenario(session):
@@ -89,6 +93,7 @@ def test_complete_task_is_idempotent():
 
     run_in_rollback(scenario)
 
+
 def test_deleted_task_is_hidden_and_its_number_is_not_reused():
     async def scenario(session):
         user = await ts.get_or_create_user(session, "U-alice")
@@ -102,6 +107,7 @@ def test_deleted_task_is_hidden_and_its_number_is_not_reused():
         assert new.task_no == 2
 
     run_in_rollback(scenario)
+
 
 def test_list_open_tasks_skips_done_and_deleted():
     async def scenario(session):
@@ -117,10 +123,11 @@ def test_list_open_tasks_skips_done_and_deleted():
 
     run_in_rollback(scenario)
 
+
 def test_users_cannot_touch_each_others_tasks():
     async def scenario(session):
         alice = await ts.get_or_create_user(session, "U-alice")
-        bob = await  ts.get_or_create_user(session, "U-bob")
+        bob = await ts.get_or_create_user(session, "U-bob")
 
         await ts.add_task(session, alice.id, "งานลับของ Alice")
 
@@ -137,13 +144,14 @@ def test_users_cannot_touch_each_others_tasks():
 
     run_in_rollback(scenario)
 
+
 def test_concurrent_adds_get_unqiue_numbers():
     async def main():
         engine = create_async_engine(database_url())
         sessions = async_sessionmaker(engine, expire_on_commit=False)
         line_user_id = f"U-concurrency-{uuid4()}"
 
-        try: 
+        try:
             async with sessions.begin() as session:
                 user = await ts.get_or_create_user(session, line_user_id)
 
@@ -165,6 +173,7 @@ def test_concurrent_adds_get_unqiue_numbers():
 
     asyncio.run(main())
 
+
 def test_task_rows_really_exist_in_database():
     async def scenario(session):
         user = await ts.get_or_create_user(session, "U-alice")
@@ -175,4 +184,3 @@ def test_task_rows_really_exist_in_database():
         assert row.estimated_minutes == 60
 
     run_in_rollback(scenario)
-

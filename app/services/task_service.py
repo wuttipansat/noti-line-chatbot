@@ -12,6 +12,7 @@ LOW, MEDIUM, HIGH = 1, 2, 3
 MAX_TITLE_LENGTH = 200
 MAX_TIME_MINUTES = 1440
 
+
 class TaskNotFound(Exception):
     """Task #n does not exist for this user, or it has been deleted"""
 
@@ -19,11 +20,14 @@ class TaskNotFound(Exception):
         super().__init__(f"task #{task_no} not found")
         self.task_no = task_no
 
+
 class InvalidTask(ValueError):
     """Task data breaks a rule. Checked before hitting the DB for a clearer error."""
 
+
 def _now() -> datetime:
     return datetime.now(UTC)
+
 
 def _clean_title(title: str) -> str:
     cleaned = " ".join(title.split())
@@ -33,11 +37,12 @@ def _clean_title(title: str) -> str:
         raise InvalidTask(f"title is longer than {MAX_TITLE_LENGTH} characters")
     return cleaned
 
+
 def _check_fields(
-        priority: int,
-        estimated_minutes: int | None,
-        due_date: date | None,
-        due_at: datetime | None,
+    priority: int,
+    estimated_minutes: int | None,
+    due_date: date | None,
+    due_at: datetime | None,
 ) -> None:
     if priority not in (LOW, MEDIUM, HIGH):
         raise InvalidTask(f"priority must be {LOW}, {MEDIUM}, or {HIGH}")
@@ -47,6 +52,7 @@ def _check_fields(
         raise InvalidTask("use due_date or due_at, not both")
     if due_at is not None and due_at.tzinfo is None:
         raise InvalidTask("due_at must be timezone-aware")
+
 
 async def get_or_create_user(session: AsyncSession, line_user_id: str) -> User:
     await session.execute(
@@ -60,6 +66,7 @@ async def get_or_create_user(session: AsyncSession, line_user_id: str) -> User:
 
     return result.scalar_one()
 
+
 async def _take_next_task_no(session: AsyncSession, user_id: int) -> int:
     result = await session.execute(
         update(User)
@@ -70,21 +77,22 @@ async def _take_next_task_no(session: AsyncSession, user_id: int) -> int:
 
     return result.scalar_one()
 
+
 async def add_task(
-        session: AsyncSession,
-        user_id: int,
-        title: str,
-        *,
-        description: str | None = None,
-        priority: int = MEDIUM,
-        estimated_minutes: int | None = None,
-        due_date: date | None = None,
-        due_at: datetime | None = None,
+    session: AsyncSession,
+    user_id: int,
+    title: str,
+    *,
+    description: str | None = None,
+    priority: int = MEDIUM,
+    estimated_minutes: int | None = None,
+    due_date: date | None = None,
+    due_at: datetime | None = None,
 ) -> Task:
     title = _clean_title(title)
     _check_fields(priority, estimated_minutes, due_date, due_at)
 
-    task =Task(
+    task = Task(
         user_id=user_id,
         task_no=await _take_next_task_no(session, user_id),
         title=title,
@@ -97,6 +105,7 @@ async def add_task(
     session.add(task)
     await session.flush()
     return task
+
 
 async def get_task(session: AsyncSession, user_id: int, task_no: int) -> Task:
     result = await session.execute(
@@ -112,6 +121,7 @@ async def get_task(session: AsyncSession, user_id: int, task_no: int) -> Task:
         raise TaskNotFound(task_no)
     return task
 
+
 async def list_open_tasks(session: AsyncSession, user_id: int) -> list[Task]:
     result = await session.execute(
         select(Task)
@@ -119,9 +129,11 @@ async def list_open_tasks(session: AsyncSession, user_id: int) -> list[Task]:
             Task.user_id == user_id,
             Task.status != "done",
             Task.deleted_at.is_(None),
-        ).order_by(Task.task_no)
+        )
+        .order_by(Task.task_no)
     )
     return list(result.scalars())
+
 
 async def complete_task(session: AsyncSession, user_id: int, task_no: int) -> Task:
     task = await get_task(session, user_id, task_no)
@@ -132,11 +144,13 @@ async def complete_task(session: AsyncSession, user_id: int, task_no: int) -> Ta
         await session.flush()
     return task
 
+
 async def delete_task(session: AsyncSession, user_id: int, task_no: int) -> None:
     task = await get_task(session, user_id, task_no)
     task.deleted_at = _now()
     task.version += 1
     await session.flush()
+
 
 @dataclass
 class TodayView:
@@ -144,8 +158,10 @@ class TodayView:
     overdue: list[Task]
     today: list[Task]
 
+
 async def _user_timezone(session: AsyncSession, user_id: int) -> str:
     return await session.scalar(select(User.timezone).where(User.id == user_id))
+
 
 def _open_tasks_of(user_id: int):
     return select(Task).where(
@@ -154,14 +170,16 @@ def _open_tasks_of(user_id: int):
         Task.deleted_at.is_(None),
     )
 
+
 def _due_between(first_day: date, end_day, tz: str):
     return or_(
         and_(Task.due_date >= first_day, Task.due_date < end_day),
         and_(
             Task.due_at >= day_start_utc(first_day, tz),
-            Task.due_at < day_start_utc(end_day, tz)
-        )
+            Task.due_at < day_start_utc(end_day, tz),
+        ),
     )
+
 
 def _sort_by_deadline(tasks: list[Task], tz: str) -> list[Task]:
     def key(task: Task) -> tuple:
@@ -169,17 +187,16 @@ def _sort_by_deadline(tasks: list[Task], tz: str) -> list[Task]:
             local = local_now(task.due_at, tz)
             return (local.date(), 0, local.time(), task.task_no)
         return (task.due_date, 1, time.min, task.task_no)
+
     return sorted(tasks, key=key)
+
 
 async def today_view(session: AsyncSession, user_id: int, now: datetime) -> TodayView:
     tz = await _user_timezone(session, user_id)
     today = local_today(now, tz)
     tomorrow = today + timedelta(days=1)
 
-    overdue_filter = or_(
-        Task.due_date < today,
-        Task.due_at < day_start_utc(today, tz)
-    )
+    overdue_filter = or_(Task.due_date < today, Task.due_at < day_start_utc(today, tz))
 
     overdue = await session.scalars(_open_tasks_of(user_id).where(overdue_filter))
 
@@ -193,8 +210,9 @@ async def today_view(session: AsyncSession, user_id: int, now: datetime) -> Toda
         today=_sort_by_deadline(list(due_today), tz),
     )
 
+
 async def week_view(
-        session: AsyncSession, user_id: int, now: datetime, days: int = 7
+    session: AsyncSession, user_id: int, now: datetime, days: int = 7
 ) -> list[Task]:
     tz = await _user_timezone(session, user_id)
     today = local_today(now, tz)

@@ -25,16 +25,18 @@ RETRY_KEY_LIFETIME = timedelta(hours=24)
 MAX_MESSAGES = 5
 MAX_TEXT_LENGTH = 5000
 
+
 def text_message(text: str) -> dict[str, Any]:
     return {"type": "text", "text": text[:MAX_TEXT_LENGTH]}
 
+
 async def queue_reply(
-        session: AsyncSession,
-        user: User,
-        event: InboundEvent,
-        messages: list[dict[str, Any]],
-        *,
-        critical: bool = False,
+    session: AsyncSession,
+    user: User,
+    event: InboundEvent,
+    messages: list[dict[str, Any]],
+    *,
+    critical: bool = False,
 ) -> None:
     """Save the answer to this event."""
     if not 1 <= len(messages) <= MAX_MESSAGES:
@@ -52,12 +54,14 @@ async def queue_reply(
         .on_conflict_do_nothing(index_elements=[OutboundMessage.idempotency_key])
     )
 
+
 def _is_due(now: datetime):
     """New rows are always due. retries wait for next_attempt_at."""
     return or_(OutboundMessage.attempts == 0, OutboundMessage.next_attempt_at <= now)
 
+
 async def due_outbox_ids(
-        session: AsyncSession, now: datetime, user_id: int | None = None
+    session: AsyncSession, now: datetime, user_id: int | None = None
 ) -> list[int]:
     query = select(OutboundMessage.id).where(
         OutboundMessage.status.in_(["pending", "sending"]),
@@ -67,6 +71,7 @@ async def due_outbox_ids(
         query = query.where(OutboundMessage.user_id == user_id)
     result = await session.scalars(query.order_by(OutboundMessage.id).limit(100))
     return list(result)
+
 
 async def _claim(session: AsyncSession, outbox_id: int, now: datetime) -> bool:
     """Only one sender may work on a row at a time."""
@@ -86,8 +91,10 @@ async def _claim(session: AsyncSession, outbox_id: int, now: datetime) -> bool:
     )
     return result.scalar_one_or_none() is not None
 
+
 def _backoff(attempts: int) -> timedelta:
-    return timedelta(seconds=min(5 * 3 ** (attempts - 1), 3600)) #5, 15, 45 s...
+    return timedelta(seconds=min(5 * 3 ** (attempts - 1), 3600))  # 5, 15, 45 s...
+
 
 async def deliver(
     sessions: async_sessionmaker, outbox_id: int, line: LineClient, now: datetime
@@ -117,6 +124,7 @@ async def deliver(
     logger.info("outbox %s -> %s via %s (%s)", outbox_id, status, channel, error)
     return status
 
+
 async def _send(
     msg: OutboundMessage, to: str, line: LineClient, now: datetime
 ) -> tuple[str, str | None, str | None]:
@@ -132,7 +140,11 @@ async def _send(
         if code == 200:
             return "sent", "reply", None
         if not msg.critical:
-            return ("dead" if code == 400 else "unknown"), "reply", error # 400 = token expired | No answer / 5xx = maybe delivered.
+            return (
+                ("dead" if code == 400 else "unknown"),
+                "reply",
+                error,
+            )  # 400 = token expired | No answer / 5xx = maybe delivered.
     elif not msg.critical:
         return "dead", None, "reply not possible and message is not critical"
 

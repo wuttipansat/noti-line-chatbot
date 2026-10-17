@@ -8,9 +8,9 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, func
 
-from app.bot.handler import handle_event
+from app.bot.handler import handle_event, make_handler
 from app.db.models import InboundEvent, OutboundMessage, Task, User
 from app.services import task_service as tasks
 from app.services.inbox_service import process_user_inbox
@@ -41,7 +41,7 @@ def make_user_id():
     run_committed(cleanup)
 
 
-async def send(sessions, line_user_id: str, payload: dict, sent_at: datetime):
+async def send(sessions, line_user_id, payload, sent_at, handler=handle_event):
     """Pretend LINE delivered one event, then let the worker process it."""
     async with sessions.begin() as session:
         session.add(
@@ -54,12 +54,12 @@ async def send(sessions, line_user_id: str, payload: dict, sent_at: datetime):
                 payload=payload,
             )
         )
-    await process_user_inbox(sessions, line_user_id, "w1", handler=handle_event)
+    await process_user_inbox(sessions, line_user_id, "w1", handler=handler)
 
 
-async def say(sessions, line_user_id: str, text: str, sent_at: datetime = NOON):
+async def say(sessions, line_user_id, text, sent_at=NOON, handler=handle_event):
     message = {"type": "message", "message": {"type": "text", "text": text}}
-    await send(sessions, line_user_id, message, sent_at)
+    await send(sessions, line_user_id, message, sent_at, handler)
 
 
 async def replies_to(sessions, line_user_id: str) -> list[OutboundMessage]:
@@ -181,5 +181,68 @@ def test_follow_gets_a_welcome_and_stickers_get_nothing(make_user_id):
 
         [body] = texts(await replies_to(sessions, alice))
         assert body.startswith("สวัสดีครับ 👋")
+
+    run_committed(scenario)
+
+
+class ScriptedModel:
+    """A fake language model that always gives the same answer."""
+
+    name = "scripted"
+
+    def __init__(self, answer: str):
+        self.answer = answer
+
+    async def extract(self, text, context):
+        return self.answer
+
+
+def test_natural_language_task_with_deadline(make_user_id):
+    alice = make_user_id()
+
+    async def scenario(sessions):
+        await say(sessions, alice, "พรุ่งนี้บ่ายสองส่งรายงาน")
+
+        [row] = await replies_to(sessions, alice)
+        assert row.messages[0]["text"] == "✅ เพิ่มงาน #1 ส่งรายงาน · ศ. 16 ต.ค. 14:00"
+        assert row.critical is True
+
+    run_committed(scenario)
+
+
+def test_bad_model_answer_changes_nothing(make_user_id):
+    alice = make_user_id()
+    broken = make_handler(ScriptedModel('{"action": "add", "title": "x", "hack": 1}'))
+
+    async def scenario(sessions):
+        await say(sessions, alice, "ช่วยจดงานหน่อย", handler=broken)
+
+        assert "ยังไม่เข้าใจ" in texts(await replies_to(sessions, alice))[0]
+        async with sessions() as session:
+            count = await session.scalar(
+                select(func.count())
+                .select_from(Task)
+                .join(User)
+                .where(User.line_user_id == alice)
+            )
+        assert count == 0
+
+    run_committed(scenario)
+
+
+def test_model_cannot_complete_another_users_task(make_user_id):
+    alice, bob = make_user_id(), make_user_id()
+    sneaky = make_handler(ScriptedModel('{"action": "done", "task_no": 1}'))
+
+    async def scenario(sessions):
+        await say(sessions, alice, "เพิ่มงาน งานของ Alice")
+        await say(sessions, bob, "ปิดงานแรกให้หน่อย", handler=sneaky)
+
+        assert "ยังไม่เข้าใจ" in texts(await replies_to(sessions, bob))[0]
+        async with sessions() as session:
+            task = await session.scalar(
+                select(Task).join(User).where(User.line_user_id == alice)
+            )
+        assert task.status == "todo"
 
     run_committed(scenario)
