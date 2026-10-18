@@ -91,6 +91,12 @@ def test_code_fences_around_json_are_tolerated():
         as_json(action="add", title="x" * 201),
         as_json(action="done", task_no=2),  # not an open task of this user
         as_json(action="done"),
+        as_json(action="add", title="x", time_options=["08:00"]),  # nothing to choose
+        as_json(action="add", title="x", time_options=["8 โมง", "14:00"]),
+        as_json(
+            action="add", title="x", due_time="08:00", time_options=["08:00", "14:00"]
+        ),
+        as_json(action="today", time_options=["08:00", "14:00"]),
     ],
 )
 def test_bad_answers_are_rejected(raw):
@@ -109,3 +115,16 @@ def test_interpret_returns_none_when_provider_crashes():
 
     assert asyncio.run(interpret("พรุ่งนี้ส่งงาน", CONTEXT, provider)) is None
     assert provider.calls == ["พรุ่งนี้ส่งงาน"]
+
+
+def test_ambiguous_time_becomes_a_question():
+    raw = as_json(action="add", title="ประชุมทีม", time_options=["14:00", "08:00"])
+
+    command = validate(raw, CONTEXT)
+
+    assert command == Command(
+        "ask_time",
+        title="ประชุมทีม",
+        due_date=date(2026, 10, 15),  # no day given = today
+        time_options=("08:00", "14:00"),
+    )

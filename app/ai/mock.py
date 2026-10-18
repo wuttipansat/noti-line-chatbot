@@ -1,7 +1,9 @@
 """A rule-based stand-in for a language model. No network, no cost, predictable.
 
-Used in tests, in local development as the fallback when the real model is down. It only understands "a task with a date or time":
+Used in tests, in local development, and (Lesson 13) as the fallback when the
+real model is down. It only understands "a task with a date or time":
     "พรุ่งนี้บ่ายสองส่งรายงาน", "ประชุมทีม 20/10/69 09:30", "วันนี้ 17:00 โทรหาลูกค้า"
+An ambiguous hour ("สองโมงประชุมทีม") comes back with time_options to ask about.
 Everything else -> {"action": "unknown"}.
 """
 
@@ -22,6 +24,12 @@ DAY_DATE = re.compile(
 CLOCK = re.compile(r"\b([01]?\d|2[0-3])[:.]([0-5]\d)\b")
 AFTERNOON = re.compile(r"บ่าย\s*(\d|หนึ่ง|สอง|สาม|สี่|ห้า)(?:\s*โมง)?")
 NOON = re.compile(r"เที่ยง(?:วัน)?")
+# Everyday Thai: "สองโมง" alone = 14:00 (08:00 is said "สองโมงเช้า").
+AFTERNOON_HOUR = re.compile(
+    r"(?<!\d)([1-5]|หนึ่ง|สอง|สาม|สี่|ห้า)\s*โมง(?!\s*(?:เช้า|เย็น|ครึ่ง))"
+)
+# "หกโมง" alone is really ambiguous: 06:00 or 18:00 -> ask.
+AMBIGUOUS = re.compile(r"(?<!\d)(?:6|หก)\s*โมง(?!\s*(?:เช้า|เย็น|ครึ่ง))")
 FILLER = re.compile(r"^(?:เตือน(?:ให้)?|ต้อง|ให้)\s*|\s*(?:ด้วย|หน่อย|นะ|ครับ|ค่ะ)$")
 
 
@@ -42,6 +50,7 @@ class MockProvider:
             rest = rest.replace(match.group(0), " ")
 
         clock = None
+        options = None
         if match := CLOCK.search(rest):
             clock = f"{int(match[1]):02d}:{match[2]}"
         elif match := AFTERNOON.search(rest):
@@ -49,19 +58,27 @@ class MockProvider:
             clock = f"{12 + hour:02d}:00"
         elif match := NOON.search(rest):
             clock = "12:00"
+        elif match := AFTERNOON_HOUR.search(rest):
+            hour = THAI_NUMBERS.get(match[1]) or int(match[1])
+            clock = f"{12 + hour:02d}:00"
+        elif match := AMBIGUOUS.search(rest):
+            options = ["06:00", "18:00"]
         if match:
             rest = rest.replace(match.group(0), " ")
 
-        if day is None and clock is None:
+        if day is None and clock is None and options is None:
             return {"action": "unknown"}
         title = " ".join(rest.split())
-        for _ in range(3):
+        for _ in range(3):  # peel several filler words: "เตือนให้ ... ด้วยนะ"
             title = FILLER.sub("", title).strip()
         if not title:
             return {"action": "unknown"}
-        return {
+        answer = {
             "action": "add",
             "title": title,
             "due_date": (day or context.today).isoformat(),
             "due_time": clock,
         }
+        if options:
+            answer["time_options"] = options
+        return answer

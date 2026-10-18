@@ -246,3 +246,97 @@ def test_model_cannot_complete_another_users_task(make_user_id):
         assert task.status == "todo"
 
     run_committed(scenario)
+
+
+async def tasks_of(sessions, line_user_id: str) -> list[Task]:
+    async with sessions() as session:
+        rows = await session.scalars(
+            select(Task).join(User).where(User.line_user_id == line_user_id)
+        )
+        return list(rows)
+
+
+def buttons(row: OutboundMessage) -> list[str]:
+    return [i["action"]["text"] for i in row.messages[0]["quickReply"]["items"]]
+
+
+def test_ambiguous_time_asks_first_then_saves_the_answer(make_user_id):
+    """AC-11: ask back, and write nothing until the user answers."""
+    alice = make_user_id()
+
+    async def scenario(sessions):
+        await say(sessions, alice, "หกโมงประชุมทีม")
+
+        [question] = await replies_to(sessions, alice)
+        assert question.messages[0]["text"] == "⏰ ประชุมทีม (พฤ. 15 ต.ค.) กี่โมงครับ?"
+        assert buttons(question) == ["06:00", "18:00", "ยกเลิก"]
+        assert await tasks_of(sessions, alice) == []
+
+        await say(sessions, alice, "18:00", NOON + timedelta(minutes=1))
+
+        [task] = await tasks_of(sessions, alice)
+        assert task.title == "ประชุมทีม"
+        assert task.due_at == datetime(2026, 10, 15, 18, 0, tzinfo=BKK)
+        answer = (await replies_to(sessions, alice))[-1]
+        assert answer.messages[0]["text"].startswith("✅ เพิ่มงาน #1 ประชุมทีม")
+        assert answer.critical is True
+
+    run_committed(scenario)
+
+
+def test_pending_question_belongs_to_one_user(make_user_id):
+    """AC-12: Bob's "18:00" must not answer Alice's question."""
+    alice, bob = make_user_id(), make_user_id()
+
+    async def scenario(sessions):
+        await say(sessions, alice, "หกโมงประชุมทีม")
+        await say(sessions, bob, "18:00", NOON + timedelta(seconds=5))
+        await say(sessions, alice, "06:00", NOON + timedelta(seconds=10))
+
+        assert await tasks_of(sessions, bob) == []
+        [task] = await tasks_of(sessions, alice)
+        assert task.due_at == datetime(2026, 10, 15, 6, 0, tzinfo=BKK)
+
+    run_committed(scenario)
+
+
+def test_cancel_clears_the_question(make_user_id):
+    alice = make_user_id()
+
+    async def scenario(sessions):
+        await say(sessions, alice, "หกโมงประชุมทีม")
+        await say(sessions, alice, "ยกเลิก", NOON + timedelta(seconds=5))
+        await say(sessions, alice, "18:00", NOON + timedelta(seconds=10))
+
+        assert await tasks_of(sessions, alice) == []
+        assert texts(await replies_to(sessions, alice))[1] == "ยกเลิกแล้วครับ"
+
+    run_committed(scenario)
+
+
+def test_expired_question_is_not_answered(make_user_id):
+    alice = make_user_id()
+
+    async def scenario(sessions):
+        await say(sessions, alice, "หกโมงประชุมทีม")
+        await say(sessions, alice, "18:00", NOON + timedelta(minutes=11))
+
+        assert await tasks_of(sessions, alice) == []
+        assert texts(await replies_to(sessions, alice))[-1].startswith(
+            "คำถามนั้นหมดเวลาแล้ว"
+        )
+
+    run_committed(scenario)
+
+
+def test_new_topic_drops_the_question(make_user_id):
+    alice = make_user_id()
+
+    async def scenario(sessions):
+        await say(sessions, alice, "หกโมงประชุมทีม")
+        await say(sessions, alice, "เพิ่มงาน อ่าน paper", NOON + timedelta(seconds=5))
+        await say(sessions, alice, "18:00", NOON + timedelta(seconds=10))
+
+        assert [t.title for t in await tasks_of(sessions, alice)] == ["อ่าน paper"]
+
+    run_committed(scenario)

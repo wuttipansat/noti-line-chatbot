@@ -7,6 +7,7 @@ def test_tables_are_registered():
         "tasks",
         "inbound_events",
         "outbound_messages",
+        "conversation_states",
     }
 
 

@@ -1,6 +1,7 @@
 """The bot's brain: one incoming event -> one reply.
 
 Order of understanding (cheapest and most predictable first):
+0. An answer to the bot's pending question, e.g. tapping [14:00].
 1. Fixed commands (parse_command) — free, instant, exact.
 2. The language model — only when 1 did not understand, and its answer is
    validated (app/ai/interpreter.py) before it can change anything.
@@ -21,6 +22,8 @@ from app.services import task_service as tasks
 from app.services.dates import local_today
 from app.services.inbox_service import Handler
 from app.services.outbox_service import queue_reply
+from app.services import conversation_service as conversation
+from app.services import task_service as tasks
 
 
 def make_handler(provider: LLMProvider) -> Handler:
@@ -38,9 +41,15 @@ def make_handler(provider: LLMProvider) -> Handler:
         if event.event_type != "message" or message.get("type") != "text":
             return  # stickers, images, ... are ignored for now
 
-        command = parse_command(message["text"])
+        text = message["text"].strip()
+        command = await _answer_pending(session, user, event, text)
+        if isinstance(command, dict):  # the answer itself needs a reply only
+            await queue_reply(session, user, event, [command])
+            return
+        if command is None:
+            command = parse_command(text)
         if command.action == "unknown":
-            command = await _ask_model(session, user, event, message["text"], provider)
+            command = await _ask_model(session, user, event, text, provider)
         reply, critical = await _run(session, user, event, command)
         await queue_reply(session, user, event, [reply], critical=critical)
 
@@ -88,6 +97,12 @@ async def _run(session, user, event, command: Command) -> tuple[dict, bool]:
                 ],
             ), True
 
+        case "ask_time":
+            await conversation.ask_time(session, user.id, event, command)
+            day = replies.thai_date(command.due_date)
+            buttons = [(t, t) for t in command.time_options] + [("ยกเลิก", "ยกเลิก")]
+            return replies.text(f"⏰ {command.title} ({day}) กี่โมงครับ?", buttons), False
+
         case "done":
             try:
                 task = await tasks.complete_task(session, user.id, command.task_no)
@@ -115,6 +130,26 @@ async def _run(session, user, event, command: Command) -> tuple[dict, bool]:
             return replies.text(
                 'ยังไม่เข้าใจครับ 🙏 ลองพิมพ์ "วิธีใช้"', replies.MAIN_BUTTONS
             ), False
+
+
+async def _answer_pending(session, user, event, text) -> Command | dict | None:
+    """If the bot asked something, is this message the answer?
+
+    Returns a Command to run, a reply (dict) to send, or None = not an answer.
+    Any message clears the question: a new topic means the user moved on.
+    """
+    state = await conversation.pop_state(session, user.id)
+    if state is None:
+        return None
+    if text == "ยกเลิก":
+        return replies.text("ยกเลิกแล้วครับ", replies.MAIN_BUTTONS)
+    if text not in state.payload["options"]:
+        return None
+    if event.event_ts > state.expires_at:
+        return replies.text(
+            "คำถามนั้นหมดเวลาแล้วครับ 🙏 พิมพ์งานใหม่อีกครั้งได้เลย", replies.MAIN_BUTTONS
+        )
+    return conversation.answer_time(state, text, user.timezone)
 
 
 handle_event = make_handler(MockProvider())

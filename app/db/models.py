@@ -166,3 +166,23 @@ class OutboundMessage(Base):
             postgresql_where=text("status IN ('pending', 'sending')"),
         ),
     )
+
+
+class ConversationState(Base):
+    """A question the bot is waiting for the user to answer. At most ONE per user."""
+
+    __tablename__ = "conversation_states"
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    kind: Mapped[str] = mapped_column(Text)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    source_event_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("inbound_events.id", ondelete="CASCADE")
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (CheckConstraint("kind IN ('clarify_time')", name="kind_allowed"),)

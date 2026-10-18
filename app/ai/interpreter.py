@@ -33,6 +33,18 @@ def _strip_code_fence(raw: str) -> str:
     return match.group(1) if match else raw
 
 
+def _parse_day(value: str, context: ExtractContext) -> date:
+    try:
+        day = date.fromisoformat(value)
+    except ValueError as exc:
+        raise Rejected(f"not a real date: {value!r}") from exc
+    if day < context.today:
+        raise Rejected("deadline in the past")
+    if day > context.today + timedelta(days=MAX_DAYS_AHEAD):
+        raise Rejected("deadline too far ahead")
+    return day
+
+
 def _parse_due(
     intent: AiIntent, context: ExtractContext
 ) -> tuple[date | None, datetime | None]:
@@ -40,21 +52,31 @@ def _parse_due(
         if intent.due_time is not None:
             raise Rejected("due_time without due_date")
         return None, None
-
-    try:
-        day = date.fromisoformat(intent.due_date)
-    except ValueError as exc:
-        raise Rejected(f"not a real date: {intent.due_date!r}") from exc
-    if day < context.today:
-        raise Rejected("deadline in the past")
-    if day > context.today + timedelta(days=MAX_DAYS_AHEAD):
-        raise Rejected("deadline too far ahead")
+    day = _parse_day(intent.due_date, context)
     if intent.due_time is None:
         return day, None
     local = datetime.combine(
         day, time.fromisoformat(intent.due_time), ZoneInfo(context.timezone)
     )
     return None, local
+
+
+def _ask_time(intent: AiIntent, context: ExtractContext) -> Command:
+    """The time is ambiguous: build a question instead of guessing."""
+    options = tuple(sorted(set(intent.time_options)))
+    if len(options) < 2:
+        raise Rejected("time_options needs at least 2 different times")
+    if intent.due_time is not None:
+        raise Rejected("both due_time and time_options")
+    day = _parse_day(intent.due_date, context) if intent.due_date else context.today
+    return Command(
+        "ask_time",
+        title=intent.title.strip(),
+        due_date=day,
+        priority=intent.priority,
+        estimated_minutes=intent.estimated_minutes,
+        time_options=options,
+    )
 
 
 def validate(raw: str, context: ExtractContext) -> Command:
@@ -69,6 +91,8 @@ def validate(raw: str, context: ExtractContext) -> Command:
         case "add":
             if not intent.title or not intent.title.strip():
                 raise Rejected("add without title")
+            if intent.time_options:
+                return _ask_time(intent, context)
             due_date, due_at = _parse_due(intent, context)
             return Command(
                 "add",
@@ -86,6 +110,8 @@ def validate(raw: str, context: ExtractContext) -> Command:
                 )
             return Command("done", task_no=intent.task_no)
         case _:
+            if intent.time_options:
+                raise Rejected("time_options only make sense with add")
             return Command(intent.action)
 
 

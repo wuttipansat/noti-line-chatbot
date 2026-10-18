@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal
 
-Action = Literal["help", "add", "today", "week", "all", "done", "unknown"]
+Action = Literal["help", "add", "ask_time", "today", "week", "all", "done", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -15,6 +15,7 @@ class Command:
     due_at: datetime | None = None
     priority: int = 2
     estimated_minutes: int | None = None
+    time_options: tuple[str, ...] = ()
 
 
 HELP_WORDS = {"help", "ช่วยเหลือ", "วิธีใช้", "เมนู"}

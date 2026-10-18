@@ -41,3 +41,36 @@ def test_understands_tasks_with_a_date_or_time(text, title, due_date, due_time):
 @pytest.mark.parametrize("text", ["สวัสดีครับ", "พรุ่งนี้", "31/02/69 งาน", "อ่าน paper"])
 def test_everything_else_is_unknown(text):
     assert extract(text) == {"action": "unknown"}
+
+
+@pytest.mark.parametrize("text", ["สวัสดีครับ", "พรุ่งนี้", "31/02/69 งาน", "อ่าน paper"])
+def test_everything_else_is_unknown(text):
+    assert extract(text) == {"action": "unknown"}
+
+
+@pytest.mark.parametrize(
+    ("text", "due_time"),
+    [
+        ("สองโมงประชุมทีม", "14:00"),
+        ("ประชุมทีม 3 โมง", "15:00"),
+        ("บ่ายสองโมงประชุมทีม", "14:00"),
+    ],
+)
+def test_hours_one_to_five_mean_afternoon(text, due_time):
+    answer = extract(text)
+    assert answer["due_time"] == due_time
+    assert "time_options" not in answer
+
+
+def test_six_oclock_is_ambiguous():
+    assert extract("หกโมงประชุมทีม") == {
+        "action": "add",
+        "title": "ประชุมทีม",
+        "due_date": "2026-10-15",
+        "due_time": None,
+        "time_options": ["06:00", "18:00"],
+    }
+
+
+def test_ten_oclock_is_not_guessed():
+    assert "time_options" not in extract("ประชุมทีม 10 โมง")
