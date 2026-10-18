@@ -8,14 +8,17 @@ from fastapi import FastAPI, Request
 
 app = FastAPI(title="fake LINE API")
 
+
 def show(kind: str, body: dict) -> None:
     for message in body.get("messages", []):
         print(f"[{kind}] bot says: {message.get('text')}", flush=True)
+
 
 @app.post("/v2/bot/message/reply")
 async def reply(request: Request) -> dict:
     show("reply", await request.json())
     return {}
+
 
 @app.post("/v2/bot/message/push")
 async def push(request: Request) -> dict:

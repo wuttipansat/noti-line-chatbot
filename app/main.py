@@ -3,7 +3,7 @@ from functools import partial
 
 from fastapi import FastAPI, Request, Response
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import Settings, get_settings
 from app.health import check_database, check_redis, run_checks

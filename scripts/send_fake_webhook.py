@@ -9,6 +9,7 @@ from app.line.signature import compute_signature
 
 URL = "http://127.0.0.1:8000/webhook/line"
 
+
 def main() -> None:
     text = sys.argv[1] if len(sys.argv) > 1 else "hello"
     secret = get_settings().line_channel_secret
@@ -37,6 +38,6 @@ def main() -> None:
     with urllib.request.urlopen(request, timeout=5) as response:
         print(response.status, response.read().decode())
 
+
 if __name__ == "__main__":
     main()
-

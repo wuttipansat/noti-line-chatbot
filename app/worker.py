@@ -18,13 +18,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.ai.factory import build_provider
+from app.bot.handler import make_handler
 from app.config import get_settings
 from app.db.models import User
 from app.line.client import LineClient
-from app.services.handlers import acknowledge
 from app.services.inbox_service import process_user_inbox, stale_line_user_ids
 from app.services.outbox_service import deliver, due_outbox_ids
-from app.bot.handler import handle_event
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -47,6 +47,7 @@ celery_app.conf.update(
 )
 
 WORKER_NAME = f"{socket.gethostname()}:{os.getpid()}"
+handle_event = make_handler(build_provider(settings))
 
 
 def _sessions():

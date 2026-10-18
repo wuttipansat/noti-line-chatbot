@@ -8,7 +8,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import delete, select, func
+from sqlalchemy import delete, func, select
 
 from app.bot.handler import handle_event, make_handler
 from app.db.models import InboundEvent, OutboundMessage, Task, User

@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     line_channel_access_token: SecretStr | None = None
     line_api_base_url: str = "https://api.line.me"
 
+    llm_provider: Literal["mock", "cloud"] = "mock"
+    llm_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
+    llm_api_key: SecretStr | None = None
+    llm_model: str = "gemini-3.1-flash-lite"
+    llm_json_mode: Literal["json_schema", "json_object"] = "json_schema"
+    llm_timeout_seconds: float = 20.0
+
     @field_validator("default_timezone")
     @classmethod
     def timezone_validator(cls, value: str) -> str:
@@ -32,7 +39,9 @@ class Settings(BaseSettings):
             raise ValueError(f"unknown timezone: {value!r}") from exc
         return value
 
-    @field_validator("line_channel_secret", "line_channel_access_token", mode="before")
+    @field_validator(
+        "line_channel_secret", "line_channel_access_token", "llm_api_key", mode="before"
+    )
     @classmethod
     def line_validator(cls, value):
         return None if value == "" else value

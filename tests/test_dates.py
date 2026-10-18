@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+
 import pytest
 
 from app.services.dates import DateParseError, day_start_utc, local_today, parse_date

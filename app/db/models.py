@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from typing import ClassVar, Any
+from typing import Any, ClassVar
 
 from sqlalchemy import (
     BigInteger,

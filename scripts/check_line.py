@@ -4,9 +4,11 @@ Run: python -m scripts.check_line
 """
 
 import sys
+
 import httpx2
 
 from app.config import get_settings
+
 
 def main() -> None:
     settings = get_settings()
@@ -29,6 +31,7 @@ def main() -> None:
     print("Token works!")
     print(f"  bot name: {info.get('displayName')}")
     print(f"  basic id: {info.get('basicId')}")
+
 
 if __name__ == "__main__":
     main()
