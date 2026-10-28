@@ -1,9 +1,9 @@
 """A rule-based stand-in for a language model. No network, no cost, predictable.
 
-Used in tests, in local development, and (Lesson 13) as the fallback when the
+Used in tests, in local development as the fallback when the
 real model is down. It only understands "a task with a date or time":
     "พรุ่งนี้บ่ายสองส่งรายงาน", "ประชุมทีม 20/10/69 09:30", "วันนี้ 17:00 โทรหาลูกค้า"
-An ambiguous hour ("สองโมงประชุมทีม") comes back with time_options to ask about.
+An ambiguous hour comes back with time_options to ask about.
 Everything else -> {"action": "unknown"}.
 """
 
@@ -24,7 +24,6 @@ DAY_DATE = re.compile(
 CLOCK = re.compile(r"\b([01]?\d|2[0-3])[:.]([0-5]\d)\b")
 AFTERNOON = re.compile(r"บ่าย\s*(\d|หนึ่ง|สอง|สาม|สี่|ห้า)(?:\s*โมง)?")
 NOON = re.compile(r"เที่ยง(?:วัน)?")
-# Everyday Thai: "สองโมง" alone = 14:00 (08:00 is said "สองโมงเช้า").
 AFTERNOON_HOUR = re.compile(
     r"(?<!\d)([1-5]|หนึ่ง|สอง|สาม|สี่|ห้า)\s*โมง(?!\s*(?:เช้า|เย็น|ครึ่ง))"
 )
