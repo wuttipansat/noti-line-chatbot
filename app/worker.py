@@ -25,6 +25,8 @@ from app.db.models import User
 from app.line.client import LineClient
 from app.services.inbox_service import process_user_inbox, stale_line_user_ids
 from app.services.outbox_service import deliver, due_outbox_ids
+from app.services.digest_service import queue_digest, users_due
+from app.services.inbox_service import process_user_inbox, stale_line_user_ids
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -43,6 +45,7 @@ celery_app.conf.update(
     beat_schedule={
         "sweep-inbox-every-minute": {"task": "inbox.sweep", "schedule": 60.0},
         "send-due-outbox-every-15s": {"task": "outbox.sweep", "schedule": 15.0},
+        "daily-digest-every-5-min": {"task": "digest.send", "schedule": 300.0},
     },
 )
 
@@ -109,6 +112,25 @@ async def _send_all_due() -> int:
         await engine.dispose()
 
 
+async def _send_digests() -> int:
+    """Queue the morning digest for every user whose time has come, then push."""
+    engine, sessions = _sessions()
+    try:
+        now = datetime.now(UTC)
+        async with sessions() as session:
+            user_ids = await users_due(session, now, settings.daily_digest_time)
+        queued = 0
+        for user_id in user_ids:
+            async with sessions.begin() as session:  # one user per transaction
+                queued += await queue_digest(session, user_id, now)
+        if queued:
+            logger.info("queued %d daily digest(s)", queued)
+            await _send_due(sessions)
+        return queued
+    finally:
+        await engine.dispose()
+
+
 @celery_app.task(name="inbox.process_user")
 def process_user_inbox_task(line_user_id: str) -> int:
     return asyncio.run(_process(line_user_id))
@@ -130,3 +152,8 @@ def sweep_outbox_task() -> int:
 def enqueue_inbox(line_user_id: str) -> None:
     """Wake a worker for this user. Called by the webhook after it commits."""
     process_user_inbox_task.delay(line_user_id)
+
+
+@celery_app.task(name="digest.send")
+def send_digests_task() -> int:
+    return asyncio.run(_send_digests())

@@ -1,3 +1,4 @@
+from datetime import time
 from functools import lru_cache
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
     line_channel_secret: SecretStr | None = None
     line_channel_access_token: SecretStr | None = None
     line_api_base_url: str = "https://api.line.me"
+    daily_digest_time: time = time(7, 0)
 
     llm_provider: Literal["mock", "cloud"] = "mock"
     llm_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
