@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     llm_model: str = "gemini-3.1-flash-lite"
     llm_json_mode: Literal["json_schema", "json_object"] = "json_schema"
     llm_timeout_seconds: float = 20.0
+    rate_limit_messages: int = 50  # per user, per window
+    rate_limit_window_minutes: int = 10
+    ai_daily_limit_per_user: int = 10
 
     @field_validator("default_timezone")
     @classmethod

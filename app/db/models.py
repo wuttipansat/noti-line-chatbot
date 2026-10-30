@@ -37,6 +37,8 @@ class User(Base):
     inbox_lease_owner: Mapped[str | None] = mapped_column(Text)
     inbox_lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_digest_on: Mapped[date | None] = mapped_column(Date)
+    ai_calls_on: Mapped[date | None] = mapped_column(Date)  # user's local date
+    ai_calls_today: Mapped[int] = mapped_column(Integer, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -115,6 +117,7 @@ class InboundEvent(Base):
     )
 
     __table_args__ = (
+        Index("ix_inbound_user_ts", "line_user_id", "event_ts"),
         CheckConstraint(
             "status IN ('received', 'processing', 'done', 'skipped', 'failed')",
             name="status_allowed",

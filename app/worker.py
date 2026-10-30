@@ -27,6 +27,7 @@ from app.services.inbox_service import process_user_inbox, stale_line_user_ids
 from app.services.outbox_service import deliver, due_outbox_ids
 from app.services.digest_service import queue_digest, users_due
 from app.services.inbox_service import process_user_inbox, stale_line_user_ids
+from app.services.limit_service import Limits
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -50,7 +51,7 @@ celery_app.conf.update(
 )
 
 WORKER_NAME = f"{socket.gethostname()}:{os.getpid()}"
-handle_event = make_handler(build_provider(settings))
+handle_event = make_handler(build_provider(settings), Limits.from_settings(settings))
 
 
 def _sessions():

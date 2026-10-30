@@ -18,15 +18,20 @@ from app.ai.provider import ExtractContext, LLMProvider, OpenTask
 from app.bot import replies
 from app.bot.commands import Command, parse_command
 from app.db.models import InboundEvent, User
+from app.services import conversation_service as conversation
+from app.services import limit_service as limits
 from app.services import task_service as tasks
 from app.services.dates import local_today
 from app.services.inbox_service import Handler
+from app.services.limit_service import Limits
 from app.services.outbox_service import queue_reply
-from app.services import conversation_service as conversation
-from app.services import task_service as tasks
+
+SLOW_DOWN = "ส่งข้อความเร็วเกินไปครับ 🙏 รอสักครู่แล้วค่อยส่งใหม่นะครับ"
+MOCK = MockProvider()
+DEFAULT_LIMITS = Limits()
 
 
-def make_handler(provider: LLMProvider) -> Handler:
+def make_handler(provider: LLMProvider, limit: Limits = DEFAULT_LIMITS) -> Handler:
     async def handle_event(
         session: AsyncSession, user: User, event: InboundEvent
     ) -> None:
@@ -41,6 +46,12 @@ def make_handler(provider: LLMProvider) -> Handler:
         if event.event_type != "message" or message.get("type") != "text":
             return  # stickers, images, ... are ignored for now
 
+        sent = await limits.messages_in_window(session, user, event, limit.window)
+        if sent > limit.messages:
+            if sent == limit.messages + 1:  # warn once per burst, then stay quiet
+                await queue_reply(session, user, event, [replies.text(SLOW_DOWN)])
+            return
+
         text = message["text"].strip()
         command = await _answer_pending(session, user, event, text)
         if isinstance(command, dict):  # the answer itself needs a reply only
@@ -49,7 +60,12 @@ def make_handler(provider: LLMProvider) -> Handler:
         if command is None:
             command = parse_command(text)
         if command.action == "unknown":
-            command = await _ask_model(session, user, event, text, provider)
+            model = provider
+            if not await limits.take_ai_call(
+                session, user, event.event_ts, limit.ai_per_day
+            ):
+                model = MOCK  # today's AI budget is used up: rules only, free
+            command = await _ask_model(session, user, event, text, model)
         reply, critical = await _run(session, user, event, command)
         await queue_reply(session, user, event, [reply], critical=critical)
 
@@ -152,4 +168,4 @@ async def _answer_pending(session, user, event, text) -> Command | dict | None:
     return conversation.answer_time(state, text, user.timezone)
 
 
-handle_event = make_handler(MockProvider())
+handle_event = make_handler(MOCK)

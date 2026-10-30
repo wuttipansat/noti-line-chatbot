@@ -10,10 +10,11 @@ from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import delete, func, select
 
-from app.bot.handler import handle_event, make_handler
+from app.bot.handler import SLOW_DOWN, handle_event, make_handler
 from app.db.models import InboundEvent, OutboundMessage, Task, User
 from app.services import task_service as tasks
 from app.services.inbox_service import process_user_inbox
+from app.services.limit_service import Limits
 from tests.helpers import run_committed
 
 BKK = ZoneInfo("Asia/Bangkok")
@@ -338,5 +339,85 @@ def test_new_topic_drops_the_question(make_user_id):
         await say(sessions, alice, "18:00", NOON + timedelta(seconds=10))
 
         assert [t.title for t in await tasks_of(sessions, alice)] == ["อ่าน paper"]
+
+    run_committed(scenario)
+
+
+class CountingModel:
+    """A pretend model that never understands, and counts how often it is asked."""
+
+    name = "counting"
+
+    def __init__(self):
+        self.calls = 0
+
+    async def extract(self, text, context):
+        self.calls += 1
+        return '{"action": "unknown"}'
+
+
+def test_too_many_messages_get_one_warning_then_silence(make_user_id):
+    """AC-28: over the limit -> one warning, then no replies and no AI."""
+    alice, bob = make_user_id(), make_user_id()
+    model = CountingModel()
+    strict = make_handler(model, Limits(messages=3, window=timedelta(minutes=10)))
+
+    async def scenario(sessions):
+        for i in range(5):
+            await say(sessions, alice, "หวัดดี", NOON + timedelta(seconds=i), strict)
+        await say(sessions, bob, "หวัดดี", NOON + timedelta(seconds=5), strict)
+
+        assert texts(await replies_to(sessions, alice)) == [
+            'ยังไม่เข้าใจครับ 🙏 ลองพิมพ์ "วิธีใช้"',
+            'ยังไม่เข้าใจครับ 🙏 ลองพิมพ์ "วิธีใช้"',
+            'ยังไม่เข้าใจครับ 🙏 ลองพิมพ์ "วิธีใช้"',
+            SLOW_DOWN,
+        ]  # the 5th message: no reply at all
+        assert model.calls == 3 + 1  # 3 from alice, 1 from bob
+        assert len(await replies_to(sessions, bob)) == 1  # bob is not limited
+
+        # 11 minutes later the window has passed: back to normal
+        await say(sessions, alice, "งานวันนี้", NOON + timedelta(minutes=11), strict)
+        assert len(await replies_to(sessions, alice)) == 5
+
+    run_committed(scenario)
+
+
+def test_daily_ai_budget_then_rules_only(make_user_id):
+    alice = make_user_id()
+    model = CountingModel()
+    thrifty = make_handler(model, Limits(ai_per_day=2))
+
+    async def scenario(sessions):
+        for i in range(3):
+            await say(sessions, alice, "หวัดดี", NOON + timedelta(seconds=i), thrifty)
+        assert model.calls == 2  # the 3rd message went to the free rules only
+
+        # Rules still work without the model:
+        await say(
+            sessions, alice, "พรุ่งนี้บ่ายสองส่งรายงาน", NOON + timedelta(seconds=5), thrifty
+        )
+        assert texts(await replies_to(sessions, alice))[-1].startswith("✅ เพิ่มงาน")
+        assert model.calls == 2
+
+        await say(sessions, alice, "หวัดดี", NOON + timedelta(days=1), thrifty)
+        assert model.calls == 3  # a new day: a new budget
+
+    run_committed(scenario)
+
+
+def test_fixed_commands_do_not_use_the_ai_budget(make_user_id):
+    alice = make_user_id()
+    model = CountingModel()
+    thrifty = make_handler(model, Limits(ai_per_day=1))
+
+    async def scenario(sessions):
+        await say(sessions, alice, "งานวันนี้", NOON, thrifty)
+        await say(
+            sessions, alice, "เพิ่มงาน อ่าน paper", NOON + timedelta(seconds=1), thrifty
+        )
+        await say(sessions, alice, "หวัดดี", NOON + timedelta(seconds=2), thrifty)
+
+        assert model.calls == 1
 
     run_committed(scenario)
