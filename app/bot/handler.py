@@ -20,6 +20,7 @@ from app.bot.commands import Command, parse_command
 from app.db.models import InboundEvent, User
 from app.services import conversation_service as conversation
 from app.services import limit_service as limits
+from app.services import privacy_service as privacy
 from app.services import task_service as tasks
 from app.services.dates import local_today
 from app.services.inbox_service import Handler
@@ -27,6 +28,8 @@ from app.services.limit_service import Limits
 from app.services.outbox_service import queue_reply
 
 SLOW_DOWN = "ส่งข้อความเร็วเกินไปครับ 🙏 รอสักครู่แล้วค่อยส่งใหม่นะครับ"
+CONFIRM_FORGET = "ยืนยันลบข้อมูล"
+FORGOTTEN = "🗑 ลบข้อมูลทั้งหมดของคุณแล้วครับ\nพิมพ์งานใหม่เมื่อไหร่ก็เริ่มใช้ต่อได้เลย"
 MOCK = MockProvider()
 DEFAULT_LIMITS = Limits()
 
@@ -35,11 +38,13 @@ def make_handler(provider: LLMProvider, limit: Limits = DEFAULT_LIMITS) -> Handl
     async def handle_event(
         session: AsyncSession, user: User, event: InboundEvent
     ) -> None:
-        if event.event_type == "follow":
-            welcome = "สวัสดีครับ 👋\n" + replies.HELP_TEXT
-            await queue_reply(
-                session, user, event, [replies.text(welcome, replies.MAIN_BUTTONS)]
-            )
+        if event.event_type == "unfollow":  # the user blocked the bot
+            await privacy.set_active(session, user, False)
+            return
+        if event.event_type == "follow":  # added (or unblocked) the bot
+            await privacy.set_active(session, user, True)
+            welcome = replies.text(replies.WELCOME_TEXT, replies.MAIN_BUTTONS)
+            await queue_reply(session, user, event, [welcome])
             return
 
         message = event.payload.get("message") or {}
@@ -119,6 +124,18 @@ async def _run(session, user, event, command: Command) -> tuple[dict, bool]:
             buttons = [(t, t) for t in command.time_options] + [("ยกเลิก", "ยกเลิก")]
             return replies.text(f"⏰ {command.title} ({day}) กี่โมงครับ?", buttons), False
 
+        case "privacy":
+            return replies.text(replies.PRIVACY_TEXT, replies.MAIN_BUTTONS), False
+
+        case "forget_me":
+            await conversation.ask_forget_confirmation(session, user.id, event)
+            body = (
+                "⚠ จะลบงานทั้งหมดและประวัติข้อความของคุณถาวร กู้คืนไม่ได้\n"
+                f'ถ้าแน่ใจ กด "{CONFIRM_FORGET}"'
+            )
+            buttons = [(CONFIRM_FORGET, CONFIRM_FORGET), ("ยกเลิก", "ยกเลิก")]
+            return replies.text(body, buttons), False
+
         case "done":
             try:
                 task = await tasks.complete_task(session, user.id, command.task_no)
@@ -159,12 +176,18 @@ async def _answer_pending(session, user, event, text) -> Command | dict | None:
         return None
     if text == "ยกเลิก":
         return replies.text("ยกเลิกแล้วครับ", replies.MAIN_BUTTONS)
-    if text not in state.payload["options"]:
-        return None
+    expected = (
+        [CONFIRM_FORGET] if state.kind == "confirm_forget" else state.payload["options"]
+    )
+    if text not in expected:
+        return None  # unrelated message: handle it normally
     if event.event_ts > state.expires_at:
         return replies.text(
             "คำถามนั้นหมดเวลาแล้วครับ 🙏 พิมพ์งานใหม่อีกครั้งได้เลย", replies.MAIN_BUTTONS
         )
+    if state.kind == "confirm_forget":
+        await privacy.forget_user(session, user, event)
+        return replies.text(FORGOTTEN)
     return conversation.answer_time(state, text, user.timezone)
 
 

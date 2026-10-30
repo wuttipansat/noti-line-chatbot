@@ -3,7 +3,18 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal
 
-Action = Literal["help", "add", "ask_time", "today", "week", "all", "done", "unknown"]
+Action = Literal[
+    "help",
+    "add",
+    "ask_time",
+    "today",
+    "week",
+    "all",
+    "done",
+    "privacy",
+    "forget_me",
+    "unknown",
+]
 
 
 @dataclass(frozen=True)
@@ -22,6 +33,8 @@ HELP_WORDS = {"help", "ช่วยเหลือ", "วิธีใช้", "�
 TODAY_WORDS = {"งานวันนี้", "วันนี้", "วันนี้มีงานอะไร"}
 WEEK_WORDS = {"งาน 7 วัน", "งาน7วัน", "งานสัปดาห์นี้"}
 ALL_WORDS = {"งานทั้งหมด", "ดูงานทั้งหมด"}
+PRIVACY_WORDS = {"ข้อมูลส่วนตัว", "ความเป็นส่วนตัว", "privacy"}
+FORGET_WORDS = {"ลบข้อมูลของฉัน", "ลบข้อมูลทั้งหมด"}
 
 ADD = re.compile(r"^(?:เพิ่มงาน|เพิ่ม|add)\s*(?P<title>.*)$", re.IGNORECASE)
 DONE = re.compile(
@@ -43,6 +56,10 @@ def parse_command(text: str) -> Command:
         return Command("week")
     if cleaned in ALL_WORDS:
         return Command("all")
+    if lowered in PRIVACY_WORDS:
+        return Command("privacy")
+    if cleaned in FORGET_WORDS:
+        return Command("forget_me")
     if match := DONE.match(cleaned):
         return Command("done", task_no=int(match["a"] or match["b"]))
     if match := ADD.match(cleaned):

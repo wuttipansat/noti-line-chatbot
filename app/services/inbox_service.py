@@ -69,8 +69,8 @@ async def next_pending_event(
 
 
 async def log_only(session: AsyncSession, user: User, event: InboundEvent) -> None:
-    text = (event.payload.get("message") or {}).get("text")
-    logger.info("user %s sent %s: %r", user.line_user_id, event.event_type, text)
+    text = (event.payload.get("message") or {}).get("text") or ""
+    logger.info("user %s sent %s (%d chars)", user.id, event.event_type, len(text))
 
 
 async def _process_one(

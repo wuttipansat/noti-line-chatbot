@@ -189,4 +189,8 @@ class ConversationState(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    __table_args__ = (CheckConstraint("kind IN ('clarify_time')", name="kind_allowed"),)
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('clarify_time', 'confirm_forget')", name="kind_allowed"
+        ),
+    )

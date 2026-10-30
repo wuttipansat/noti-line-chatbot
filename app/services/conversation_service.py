@@ -19,20 +19,14 @@ from app.db.models import ConversationState, InboundEvent
 QUESTION_TTL = timedelta(minutes=10)
 
 
-async def ask_time(
-    session: AsyncSession, user_id: int, event: InboundEvent, command: Command
+async def _save_state(
+    session: AsyncSession, user_id: int, event: InboundEvent, kind: str, payload: dict
 ) -> None:
-    """Remember the half-finished task. A newer question replaces an older one."""
+    """Remember a question. A newer question replaces an older one (upsert)."""
     values = {
         "user_id": user_id,
-        "kind": "clarify_time",
-        "payload": {
-            "title": command.title,
-            "due_date": command.due_date.isoformat(),
-            "priority": command.priority,
-            "estimated_minutes": command.estimated_minutes,
-            "options": list(command.time_options),
-        },
+        "kind": kind,
+        "payload": payload,
         "source_event_id": event.id,
         "expires_at": event.event_ts + QUESTION_TTL,
     }
@@ -42,6 +36,27 @@ async def ask_time(
             index_elements=[ConversationState.user_id], set_=values
         )
     )
+
+
+async def ask_time(
+    session: AsyncSession, user_id: int, event: InboundEvent, command: Command
+) -> None:
+    """Remember the half-finished task until the user picks a time."""
+    payload = {
+        "title": command.title,
+        "due_date": command.due_date.isoformat(),
+        "priority": command.priority,
+        "estimated_minutes": command.estimated_minutes,
+        "options": list(command.time_options),
+    }
+    await _save_state(session, user_id, event, "clarify_time", payload)
+
+
+async def ask_forget_confirmation(
+    session: AsyncSession, user_id: int, event: InboundEvent
+) -> None:
+    """Deleting everything cannot be undone: wait for an explicit confirmation."""
+    await _save_state(session, user_id, event, "confirm_forget", {})
 
 
 async def pop_state(session: AsyncSession, user_id: int) -> ConversationState | None:
