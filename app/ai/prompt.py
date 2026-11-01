@@ -44,7 +44,9 @@ Actions:
 - add: the user wants to remember a task. title = short task name in the user's words,
   without date/time words. due_date = YYYY-MM-DD, due_time = HH:MM (24h), both in the
   user's local time. Leave them null if the user gave no date/time.
-  A time with no day ("บ่ายสามโทรหาลูกค้า") still gets due_time; we decide the day.
+  A time with no day ("บ่ายสามโทรหาลูกค้า", "เที่ยงครึ่งกินข้าว") still gets due_time,
+  but due_date stays null even when that time is already past: we decide the day.
+  Only fill due_date when the message itself names a day (วันนี้, พรุ่งนี้, ศุกร์, 15 พ.ย. ...).
 - done: the user finished one of their OPEN TASKS. task_no must be one listed below.
 - today / week / all: the user wants to see tasks due today / in 7 days / all open tasks.
 - help: the user asks what the bot can do.

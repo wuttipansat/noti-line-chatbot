@@ -87,3 +87,10 @@ def test_never_answered_is_skipped_not_wrong(monkeypatch):
     assert "skipped (provider failed: HTTP 503)" in text
     assert "ข้าม 2 ข้อ" in text
     assert "ผ่าน" not in text
+
+
+def test_also_ok_accepts_another_good_action():
+    case = Case("สวัสดีครับ", "unknown", also_ok=("help",))
+
+    assert check(case, Command("help")) == []
+    assert check(case, Command("today")) == ["action today (expected unknown)"]
