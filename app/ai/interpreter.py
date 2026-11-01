@@ -11,6 +11,7 @@ import re
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import httpx2
 from pydantic import ValidationError
 
 from app.ai.provider import ExtractContext, LLMProvider
@@ -45,14 +46,22 @@ def _parse_day(value: str, context: ExtractContext) -> date:
     return day
 
 
+def _day_for_time_only(due_time: str, context: ExtractContext) -> date:
+    """ "บ่ายสามโทรหาลูกค้า": today, or tomorrow if that time has already passed."""
+    if context.now is not None and time.fromisoformat(due_time) <= context.now:
+        return context.today + timedelta(days=1)
+    return context.today
+
+
 def _parse_due(
     intent: AiIntent, context: ExtractContext
 ) -> tuple[date | None, datetime | None]:
     if intent.due_date is None:
-        if intent.due_time is not None:
-            raise Rejected("due_time without due_date")
-        return None, None
-    day = _parse_day(intent.due_date, context)
+        if intent.due_time is None:
+            return None, None
+        day = _day_for_time_only(intent.due_time, context)
+    else:
+        day = _parse_day(intent.due_date, context)
     if intent.due_time is None:
         return day, None
     local = datetime.combine(
@@ -115,17 +124,35 @@ def validate(raw: str, context: ExtractContext) -> Command:
             return Command(intent.action)
 
 
+async def interpret_explained(
+    text: str, context: ExtractContext, provider: LLMProvider
+) -> tuple[Command | None, str]:
+    """Like interpret(), plus why: "ok", or what went wrong (for logs and evals)."""
+    try:
+        raw = await provider.extract(text, context)
+    except (httpx2.HTTPStatusError, httpx2.TransportError) as exc:
+        # Busy, quota or network: expected now and then, one line is enough.
+        logger.warning("provider %s unavailable: %s", provider.name, _why(exc))
+        return None, f"provider failed: {_why(exc)}"
+    except Exception as exc:  # anything else is a bug worth a full traceback
+        logger.exception("provider %s failed", provider.name)
+        return None, f"provider failed: {type(exc).__name__}"
+    try:
+        return validate(raw, context), "ok"
+    except Rejected as exc:
+        logger.warning("provider %s answer rejected: %s", provider.name, exc)
+        return None, f"rejected: {exc}"
+
+
+def _why(exc: Exception) -> str:
+    if isinstance(exc, httpx2.HTTPStatusError):
+        return f"HTTP {exc.response.status_code}"
+    return type(exc).__name__
+
+
 async def interpret(
     text: str, context: ExtractContext, provider: LLMProvider
 ) -> Command | None:
     """Ask the provider, then validate. None = could not get a safe answer."""
-    try:
-        raw = await provider.extract(text, context)
-    except Exception:
-        logger.exception("provider %s failed", provider.name)
-        return None
-    try:
-        return validate(raw, context)
-    except Rejected as exc:
-        logger.warning("provider %s answer rejected: %s", provider.name, exc)
-        return None
+    command, _ = await interpret_explained(text, context, provider)
+    return command

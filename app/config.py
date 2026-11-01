@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
     llm_api_key: SecretStr | None = None
     llm_model: str = "gemini-3.1-flash-lite"
+    llm_fallback_model: str | None = None  # tried when llm_model fails (own quota)
     llm_json_mode: Literal["json_schema", "json_object"] = "json_schema"
     llm_timeout_seconds: float = 20.0
     rate_limit_messages: int = 20  # per user, per window
@@ -51,6 +52,7 @@ class Settings(BaseSettings):
         "line_channel_secret",
         "line_channel_access_token",
         "llm_api_key",
+        "llm_fallback_model",
         "liff_id",
         "line_login_channel_id",
         mode="before",

@@ -95,6 +95,22 @@ def _next_occurrence(month: int, day: int, today: date) -> date:
     return candidate
 
 
+def weekday_date(weekday: int, today: date, next_week: bool = False) -> date:
+    """ "วันศุกร์" = the coming Friday (today if today is Friday).
+    "ศุกร์หน้า" (next_week=True) = Friday of next week (weeks start on Monday).
+    weekday: 0 = Monday ... 6 = Sunday, like date.weekday().
+    """
+    if next_week:
+        monday_next_week = today + timedelta(days=7 - today.weekday())
+        return monday_next_week + timedelta(days=weekday)
+    return today + timedelta(days=(weekday - today.weekday()) % 7)
+
+
+def end_of_month(today: date) -> date:
+    first_of_next = (today.replace(day=1) + timedelta(days=32)).replace(day=1)
+    return first_of_next - timedelta(days=1)
+
+
 def parse_date(text: str, today: date) -> date:
     cleaned = " ".join(text.split())
 

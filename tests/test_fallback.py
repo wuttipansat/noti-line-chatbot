@@ -2,7 +2,10 @@
 
 import asyncio
 import json
+import logging
 from datetime import date
+
+import httpx2
 
 from app.ai.factory import build_provider
 from app.ai.fallback import FallbackProvider
@@ -26,6 +29,17 @@ class Broken:
     async def extract(self, text, context):
         self.calls += 1
         raise TimeoutError("model did not answer")
+
+
+class Busy:
+    """Like Gemini answering 503 Service Unavailable."""
+
+    name = "cloud"
+
+    async def extract(self, text, context):
+        request = httpx2.Request("POST", "https://example.test/chat/completions")
+        response = httpx2.Response(503, request=request)
+        raise httpx2.HTTPStatusError("503", request=request, response=response)
 
 
 class Fixed:
@@ -77,4 +91,29 @@ def test_cloud_with_key_comes_with_mock_backup():
     provider = build_provider(settings)
 
     assert isinstance(provider, FallbackProvider)
-    assert provider.name == "cloud+mock"
+    assert provider.name == "cloud(gemini-3.1-flash-lite)+mock"
+
+
+def test_a_second_model_sits_between_the_first_and_the_mock():
+    settings = Settings(
+        _env_file=None,
+        llm_provider="cloud",
+        llm_api_key="test-key",
+        llm_fallback_model="gemini-3.8-flash",
+    )
+
+    provider = build_provider(settings)
+
+    assert provider.name == "cloud(gemini-3.1-flash-lite)+cloud(gemini-3.8-flash)+mock"
+
+
+def test_provider_outage_is_one_warning_line_not_a_traceback(caplog):
+    provider = FallbackProvider(Busy(), MockProvider())
+
+    with caplog.at_level(logging.WARNING):
+        command = asyncio.run(interpret("วันนี้ 17:00 โทรหาลูกค้า", CONTEXT, provider))
+
+    assert command.action == "add"  # the mock still understood it
+    [record] = caplog.records
+    assert record.getMessage() == "cloud unavailable (HTTP 503); using mock"
+    assert record.exc_info is None

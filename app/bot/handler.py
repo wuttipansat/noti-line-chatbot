@@ -22,7 +22,7 @@ from app.services import conversation_service as conversation
 from app.services import limit_service as limits
 from app.services import privacy_service as privacy
 from app.services import task_service as tasks
-from app.services.dates import local_today
+from app.services.dates import local_now, local_today
 from app.services.inbox_service import Handler
 from app.services.limit_service import Limits
 from app.services.outbox_service import queue_reply
@@ -84,10 +84,12 @@ def make_handler(
 
 async def _ask_model(session, user, event, text, provider) -> Command:
     open_tasks = await tasks.list_open_tasks(session, user.id)
+    sent_at = local_now(event.event_ts, user.timezone)  # when the user wrote it
     context = ExtractContext(
-        today=local_today(event.event_ts, user.timezone),
+        today=sent_at.date(),
         timezone=user.timezone,
         open_tasks=[OpenTask(t.task_no, t.title) for t in open_tasks],
+        now=sent_at.time().replace(second=0, microsecond=0),
     )
     return await interpret(text, context, provider) or Command("unknown")
 

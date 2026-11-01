@@ -5,7 +5,7 @@ app/ai/interpreter.py checks every field before anything touches the database.
 """
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, time
 from typing import Protocol
 
 
@@ -22,6 +22,7 @@ class ExtractContext:
     today: date
     timezone: str
     open_tasks: list[OpenTask]
+    now: time | None = None  # the user's local clock time, when we know it
 
 
 class LLMProvider(Protocol):

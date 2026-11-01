@@ -25,7 +25,7 @@ def extract(text: str) -> dict:
         ("ประชุมทีม 20/10/69 09:30", "ประชุมทีม", "2026-10-20", "09:30"),
         ("วันนี้ 17:00 โทรหาลูกค้า", "โทรหาลูกค้า", "2026-10-15", "17:00"),
         ("เตือนให้จ่ายค่าไฟพรุ่งนี้ด้วยนะ", "จ่ายค่าไฟ", "2026-10-16", None),
-        ("เที่ยงกินข้าวกับแม่", "กินข้าวกับแม่", "2026-10-15", "12:00"),
+        ("เที่ยงกินข้าวกับแม่", "กินข้าวกับแม่", None, "12:00"),  # no day given
         ("15 พ.ย. ส่ง proposal", "ส่ง proposal", "2026-11-15", None),
     ],
 )
@@ -36,11 +36,6 @@ def test_understands_tasks_with_a_date_or_time(text, title, due_date, due_time):
         "due_date": due_date,
         "due_time": due_time,
     }
-
-
-@pytest.mark.parametrize("text", ["สวัสดีครับ", "พรุ่งนี้", "31/02/69 งาน", "อ่าน paper"])
-def test_everything_else_is_unknown(text):
-    assert extract(text) == {"action": "unknown"}
 
 
 @pytest.mark.parametrize("text", ["สวัสดีครับ", "พรุ่งนี้", "31/02/69 งาน", "อ่าน paper"])
@@ -66,7 +61,7 @@ def test_six_oclock_is_ambiguous():
     assert extract("หกโมงประชุมทีม") == {
         "action": "add",
         "title": "ประชุมทีม",
-        "due_date": "2026-10-15",
+        "due_date": None,
         "due_time": None,
         "time_options": ["06:00", "18:00"],
     }
@@ -74,3 +69,23 @@ def test_six_oclock_is_ambiguous():
 
 def test_ten_oclock_is_not_guessed():
     assert "time_options" not in extract("ประชุมทีม 10 โมง")
+
+
+@pytest.mark.parametrize(
+    ("text", "due_date", "due_time"),
+    [
+        ("ศุกร์หน้าส่งรายงาน", "2026-10-23", None),  # 15 Oct 2026 is a Thursday
+        ("วันศุกร์ส่งรายงาน", "2026-10-16", None),
+        ("อีก 3 วันจ่ายค่าเน็ต", "2026-10-18", None),
+        ("สิ้นเดือนจ่ายค่าเช่า", "2026-10-31", None),
+        ("สองทุ่มโทรหาแม่", None, "20:00"),
+        ("ตีห้าวิ่ง", None, "05:00"),
+        ("เที่ยงครึ่งกินข้าว", None, "12:30"),
+        ("บ่ายสามโมงครึ่งประชุม", None, "15:30"),
+        ("ห้าโมงเย็นรับลูก", None, "17:00"),
+        ("บ่ายโมงนัดหมอ", None, "13:00"),
+    ],
+)
+def test_more_thai_days_and_hours(text, due_date, due_time):
+    answer = extract(text)
+    assert (answer["due_date"], answer["due_time"]) == (due_date, due_time)

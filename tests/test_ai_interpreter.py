@@ -2,12 +2,13 @@
 
 import asyncio
 import json
-from datetime import date, datetime
+from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
+import httpx2
 import pytest
 
-from app.ai.interpreter import Rejected, interpret, validate
+from app.ai.interpreter import Rejected, interpret, interpret_explained, validate
 from app.ai.provider import ExtractContext, OpenTask
 from app.bot.commands import Command
 
@@ -85,7 +86,6 @@ def test_code_fences_around_json_are_tolerated():
         as_json(action="add", title="x", due_date="15/10/2026"),  # wrong format
         as_json(action="add", title="x", due_date="2026-10-14"),  # in the past
         as_json(action="add", title="x", due_date="2030-01-01"),  # too far ahead
-        as_json(action="add", title="x", due_time="14:00"),  # time without date
         as_json(action="add", title="x", due_date="2026-10-16", due_time="25:00"),
         as_json(action="add", title="x", priority=9),
         as_json(action="add", title="x" * 201),
@@ -128,3 +128,55 @@ def test_ambiguous_time_becomes_a_question():
         due_date=date(2026, 10, 15),  # no day given = today
         time_options=("08:00", "14:00"),
     )
+
+
+def test_time_without_a_day_is_today_if_still_ahead():
+    context = ExtractContext(date(2026, 10, 15), "Asia/Bangkok", [], now=time(9, 0))
+
+    command = validate(
+        as_json(action="add", title="โทรหาลูกค้า", due_time="15:00"), context
+    )
+
+    assert command.due_at == datetime(2026, 10, 15, 15, 0, tzinfo=BKK)
+
+
+def test_time_without_a_day_that_already_passed_is_tomorrow():
+    context = ExtractContext(date(2026, 10, 15), "Asia/Bangkok", [], now=time(9, 0))
+
+    command = validate(as_json(action="add", title="วิ่ง", due_time="05:00"), context)
+
+    assert command.due_at == datetime(2026, 10, 16, 5, 0, tzinfo=BKK)
+
+
+def test_short_times_like_9_00_are_accepted():
+    raw = as_json(action="add", title="ประชุม", due_date="2026-10-16", due_time="9:00")
+
+    assert validate(raw, CONTEXT).due_at == datetime(2026, 10, 16, 9, 0, tzinfo=BKK)
+
+
+def test_explained_interpret_says_why():
+    rejected = FakeProvider(as_json(action="done", task_no=99))
+    crashed = FakeProvider(TimeoutError("slow"))
+
+    assert asyncio.run(interpret_explained("x", CONTEXT, rejected)) == (
+        None,
+        "rejected: task #99 is not one of this user's open tasks",
+    )
+    assert asyncio.run(interpret_explained("x", CONTEXT, crashed)) == (
+        None,
+        "provider failed: TimeoutError",
+    )
+
+
+def test_busy_provider_logs_one_line_not_a_traceback(caplog):
+    request = httpx2.Request("POST", "https://ai.example/v1")
+    busy = httpx2.HTTPStatusError(
+        "busy", request=request, response=httpx2.Response(503, request=request)
+    )
+
+    result = asyncio.run(interpret_explained("x", CONTEXT, FakeProvider(busy)))
+
+    assert result == (None, "provider failed: HTTP 503")
+    [record] = [r for r in caplog.records if r.name == "app.ai.interpreter"]
+    assert record.levelname == "WARNING"
+    assert record.exc_info is None
