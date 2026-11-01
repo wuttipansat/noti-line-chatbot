@@ -47,7 +47,9 @@ Actions:
   A time with no day ("บ่ายสามโทรหาลูกค้า", "เที่ยงครึ่งกินข้าว") still gets due_time,
   but due_date stays null even when that time is already past: we decide the day.
   Only fill due_date when the message itself names a day (วันนี้, พรุ่งนี้, ศุกร์, 15 พ.ย. ...).
-- done: the user finished one of their OPEN TASKS. task_no must be one listed below.
+- done: the user says they FINISHED one of their OPEN TASKS ("เสร็จแล้ว", "จบแล้ว",
+  "ส่งแล้ว", "done"). task_no must be one listed below. Mentioning a task is not enough:
+  "ลืมส่ง", "ต้องส่ง", "จะส่ง" mean it is NOT done (that is an add).
 - today / week / all: the user wants to see tasks due today / in 7 days / all open tasks.
 - help: the user asks what the bot can do.
 - unknown: anything else, or if you are not sure. Never guess.
@@ -61,6 +63,9 @@ Dates (do not calculate them: copy them from the Calendar below):
 
 Rules:
 - Use only the facts in the message. Do not invent dates, times or tasks.
+- A part of the day with no clock number ("เช้า", "สาย", "บ่าย", "เย็น", "ค่ำ", "คืน",
+  as in "เย็นนี้ซื้อของ", "ตอนเช้า") is NOT a time: leave due_time null. Only a number
+  makes a time ("บ่ายสาม", "หกโมงเย็น", "ทุ่มนึง").
 - Thai hours: "บ่ายโมง"/"หนึ่งโมง".."ห้าโมง" alone = 13:00..17:00 (afternoon).
   "เจ็ดโมง".."สิบเอ็ดโมง" = 07:00..11:00. "หกโมงเช้า" = 06:00, "หกโมงเย็น" = 18:00.
   "เที่ยง" = 12:00. "ทุ่มนึง"/"หนึ่งทุ่ม".."ห้าทุ่ม" = 19:00..23:00. "เที่ยงคืน" = 00:00.

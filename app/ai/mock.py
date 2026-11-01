@@ -48,6 +48,8 @@ MORNING_HOUR = re.compile(
 )
 SIX_AM = re.compile(rf"(?<!\d)(?:6|หก)\s*โมงเช้า{HALF}")
 MORNING_NUMBERS = {"เจ็ด": 7, "แปด": 8, "เก้า": 9, "สิบ": 10, "สิบเอ็ด": 11}
+# Not supported yet: never turn "cancel the meeting" into a new task called "cancel".
+CHANGE = re.compile(r"ยกเลิก|เลื่อน|ลบ|แก้|เปลี่ยน")
 QUESTION = re.compile(r"อะไร|ไหม|มั้ย|บ้าง|หรือเปล่า|\?")  # asking, not telling
 URGENT = re.compile(r"\s*ด่วน(?:มาก|ที่สุด)?")
 FILLER = re.compile(r"^(?:เตือน(?:ให้)?|ต้อง|ให้)\s*|\s*(?:ด้วย|หน่อย|นะ|ครับ|ค่ะ)$")
@@ -119,7 +121,7 @@ class MockProvider:
         title = " ".join(rest.split())
         for _ in range(3):  # peel several filler words: "เตือนให้ ... ด้วยนะ"
             title = FILLER.sub("", title).strip()
-        if not title or QUESTION.search(title):
+        if not title or QUESTION.search(title) or CHANGE.search(title):
             return {"action": "unknown"}
         priority = 3 if URGENT.search(title) else 2
         title = URGENT.sub("", title).strip()

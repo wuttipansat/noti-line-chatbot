@@ -94,3 +94,16 @@ def test_also_ok_accepts_another_good_action():
 
     assert check(case, Command("help")) == []
     assert check(case, Command("today")) == ["action today (expected unknown)"]
+
+
+def test_hard_set_scores_apart_and_multi_task_cases_are_gaps():
+    from scripts.eval_ai import HARD_CASES, SETS
+
+    results = asyncio.run(run(MockProvider(), cases=HARD_CASES))
+    text = report(results)
+
+    assert SETS["all"] == CASES + HARD_CASES
+    assert any(case.many for case in HARD_CASES)
+    assert all(not r.ok for r in results if r.case.many)  # one answer, many tasks
+    assert "ยังทำไม่ได้" in text
+    assert "ข้าม" not in text  # gaps are not "skipped"

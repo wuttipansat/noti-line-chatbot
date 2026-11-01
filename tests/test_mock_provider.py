@@ -89,3 +89,8 @@ def test_ten_oclock_is_not_guessed():
 def test_more_thai_days_and_hours(text, due_date, due_time):
     answer = extract(text)
     assert (answer["due_date"], answer["due_time"]) == (due_date, due_time)
+
+
+@pytest.mark.parametrize("text", ["ยกเลิกประชุมพรุ่งนี้", "เลื่อนประชุมเป็นศุกร์"])
+def test_changing_a_task_is_not_a_new_task(text):
+    assert extract(text)["action"] == "unknown"

@@ -44,6 +44,7 @@ class Case:
     priority: int | None = None
     options: tuple[str, ...] = ()
     note: str = ""
+    many: int = 0  # the message holds this many tasks (the bot cannot do it yet)
     also_ok: tuple[str, ...] = ()  # other actions that are just as good an answer
 
 
@@ -107,6 +108,82 @@ CASES = [
 ]
 
 
+# Real people are not tidy: short, lazy, misspelled, half English, several things at once.
+# Scored separately (--set hard) so the first score stays comparable over time.
+HARD_CASES = [
+    # lazy and terse
+    Case("ส่งงาน พรุ่ง", "add", "2026-10-29", None, "ส่งงาน"),
+    Case(
+        "ประชุม 10โมง",
+        "add",
+        "2026-10-29",
+        "10:00",
+        "ประชุม",
+        note="10:00 already passed",
+    ),
+    Case("โทรแม่ 2ทุ่ม", "add", "2026-10-28", "20:00", "แม่"),
+    Case("ซื้อนม", "add", None, None, "นม"),
+    Case("ประชุม", "add", None, None, "ประชุม", note="one word is still a task"),
+    Case("พรุงนี้ประชุมบ่ายสอง", "add", "2026-10-29", "14:00", "ประชุม", note="typo"),
+    Case("tomorrow 3pm meeting", "add", "2026-10-29", "15:00", "meeting"),
+    Case("meeting ศุกร์ 10am", "add", "2026-10-30", "10:00", "meeting"),
+    Case("พรุ่งนี้ 14.30 น. ประชุม", "add", "2026-10-29", "14:30", "ประชุม"),
+    Case("วันที่ 5 พฤศจิกายนส่งบิล", "add", "2026-11-05", None, "บิล"),
+    Case(
+        "อีก 2 ชั่วโมงโทรกลับลูกค้า",
+        "add",
+        "2026-10-28",
+        "16:00",
+        "โทรกลับ",
+        note="needs the clock",
+    ),
+    Case(
+        "พรุ่งนี้ว่าจะไปตลาดตอนเช้านะ",
+        "add",
+        "2026-10-29",
+        None,
+        "ตลาด",
+        note="'morning' is not a time",
+    ),
+    Case("เย็นนี้ซื้อของเข้าบ้าน", "add", "2026-10-28", None, "ซื้อของ"),
+    Case("สำคัญมาก ส่งสัญญาพรุ่งนี้", "add", "2026-10-29", None, "สัญญา", priority=3),
+    Case(
+        "เมื่อวานลืมส่งรายงาน ต้องส่งวันนี้",
+        "add",
+        "2026-10-28",
+        None,
+        "ส่งรายงาน",
+        note="past word, today deadline",
+    ),
+    Case(
+        "คือว่าพรุ่งนี้เนี่ย ต้องไปรับของที่ไปรษณีย์ แต่ไม่รู้กี่โมง", "add", "2026-10-29", None, "ไปรษณีย์"
+    ),
+    # lazy "done" and lazy questions
+    Case("done 1", "done", task_no=1),
+    Case("เสร็จแล้ว 3", "done", task_no=3),
+    Case("ส่งรายงานเสร็จละ", "done", task_no=3),
+    Case("เสร็จ", "unknown", note="which task? never guess"),
+    Case("ทำงานที่ 7 เสร็จแล้ว", "unknown", note="#7 is not this user's open task"),
+    Case("งานวันนี้", "today"),
+    Case("สัปดาห์นี้", "week"),
+    Case("งานค้าง", "all"),
+    Case("help", "help"),
+    Case("ช่วยด้วย", "help", also_ok=("unknown",)),
+    # things that must NOT become tasks
+    Case("พรุ่งนี้", "unknown", note="a day without a task"),
+    Case("👍", "unknown"),
+    Case("ยกเลิกประชุมพรุ่งนี้", "unknown", note="cancel: not supported yet (lesson 25)"),
+    Case("เลื่อนประชุมเป็นศุกร์", "unknown", note="postpone: not supported yet (lesson 25)"),
+    # several tasks in one message: the bot understands one command per message
+    Case("พรุ่งนี้ส่งรายงาน แล้วศุกร์ประชุมทีม", "add", many=2),
+    Case("1. ส่งรายงานพรุ่งนี้\n2. โทรหาลูกค้าศุกร์บ่ายสอง\n3. จ่ายค่าไฟ", "add", many=3),
+    Case("พรุ่งนี้ 9 โมงประชุม 11 โมงสัมภาษณ์ บ่ายสองส่งงาน", "add", many=3),
+    Case("ส่งรายงานเสร็จแล้ว พรุ่งนี้ต้องประชุมทีมบ่ายสอง", "add", many=2, note="done + add"),
+    Case("ซื้อนม, ล้างรถ, โทรหาแม่ วันนี้", "add", many=3),
+]
+SETS = {"base": CASES, "hard": HARD_CASES, "all": CASES + HARD_CASES}
+
+
 @dataclass
 class Result:
     case: Case
@@ -138,6 +215,8 @@ def describe(command: Command | None) -> str:
 def check(case: Case, command: Command | None) -> list[str]:
     """What is wrong with this answer? An empty list = correct."""
     action = command.action if command else "unknown"
+    if case.many:
+        return [f"{case.many} tasks in one message; one answer holds only one"]
     if action != case.action and action in case.also_ok:
         return []
     if action != case.action:
@@ -180,10 +259,13 @@ async def ask(
 
 
 async def run(
-    provider: LLMProvider, delay: float = 0, waits: tuple[float, ...] = ()
+    provider: LLMProvider,
+    delay: float = 0,
+    waits: tuple[float, ...] = (),
+    cases: list[Case] | None = None,
 ) -> list[Result]:
     results = []
-    for i, case in enumerate(CASES):
+    for i, case in enumerate(CASES if cases is None else cases):
         if i and delay:
             await asyncio.sleep(delay)
         command, why = await ask(case, provider, waits)
@@ -199,20 +281,27 @@ async def run(
 def report(results: list[Result]) -> str:
     lines = []
     for n, r in enumerate(results, 1):
-        mark = {True: "✓", False: "✗", None: "-"}[r.ok]
+        mark = "○" if r.case.many else {True: "✓", False: "✗", None: "-"}[r.ok]
         lines.append(f"{mark} {n:02d} {r.case.text}")
-        if r.ok is None:
+        if r.case.many and r.ok is not None:
+            lines.append(
+                f"      bot understood: {r.got}   (should be {r.case.many} tasks)"
+            )
+        elif r.ok is None:
             lines.append(f"      skipped ({r.why})")
         elif not r.ok:
             lines.append(f"      got: {r.got}")
             lines += [f"      - {p}" for p in r.problems]
             if r.why != "ok":
                 lines.append(f"      ({r.why})")
-    scored = [r for r in results if r.ok is not None]
+    gaps = [r for r in results if r.case.many]
+    scored = [r for r in results if r.ok is not None and not r.case.many]
     passed = sum(bool(r.ok) for r in scored)
-    skipped = len(results) - len(scored)
+    skipped = sum(r.ok is None for r in results)
     if scored:
         lines.append(f"\nผ่าน {passed}/{len(scored)} ({passed * 100 // len(scored)}%)")
+    if gaps:
+        lines.append(f"ยังทำไม่ได้ {len(gaps)} ข้อ (หลายงานในข้อความเดียว): ไม่นับคะแนน")
     if skipped:
         lines.append(f"ข้าม {skipped} ข้อ: AI ไม่ว่าง ไม่นับคะแนน (รันใหม่ภายหลัง)")
     return "\n".join(lines)
@@ -221,6 +310,13 @@ def report(results: list[Result]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--mock", action="store_true", help="use the rule-based mock")
+    parser.add_argument(
+        "--set",
+        choices=SETS,
+        default="base",
+        dest="cases",
+        help="base (tidy, 30), hard (lazy and multi-task), or all",
+    )
     parser.add_argument("--model", help="override LLM_MODEL from .env")
     parser.add_argument(
         "--delay", type=float, default=4.5, help="seconds between calls"
@@ -246,9 +342,9 @@ def main() -> None:
         delay = args.delay
         waits = (15.0, 45.0)  # a busy provider often recovers within a minute
         print(
-            f"model: {model}  ({len(CASES)} calls, about {len(CASES) * delay / 60:.0f} min)\n"
+            f"model: {model}  ({len(SETS[args.cases])} calls, about {len(SETS[args.cases]) * delay / 60:.0f} min)\n"
         )
-    print("\n" + report(asyncio.run(run(provider, delay, waits))))
+    print("\n" + report(asyncio.run(run(provider, delay, waits, SETS[args.cases]))))
 
 
 if __name__ == "__main__":
