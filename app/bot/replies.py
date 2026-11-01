@@ -36,6 +36,7 @@ HELP_TEXT = (
     "• #3 เสร็จ\n"
     "• ข้อมูลส่วนตัว (ดูว่าเราเก็บอะไรบ้าง)\n"
     "• ลบข้อมูลของฉัน"
+    "• ปฏิทิน (ดูงานทั้งเดือน เพิ่มและแก้ไขงาน)\n"
 )
 
 PRIVACY_TEXT = (
@@ -153,6 +154,16 @@ def today_reply(
         sections,
         alt_text="\n".join(lines),
         buttons=quick_replies(buttons)["items"],
+    )
+
+
+def calendar_card(liff_url: str) -> dict[str, Any]:
+    """A small card with one button that opens the LIFF calendar."""
+    return flex.link_card(
+        "ปฏิทินงาน",
+        "ดูงานทั้งเดือน เพิ่ม แก้ไข หรือลบงานได้ในหน้าเดียว",
+        "เปิดปฏิทิน",
+        liff_url,
     )
 
 

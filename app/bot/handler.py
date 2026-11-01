@@ -34,7 +34,12 @@ MOCK = MockProvider()
 DEFAULT_LIMITS = Limits()
 
 
-def make_handler(provider: LLMProvider, limit: Limits = DEFAULT_LIMITS) -> Handler:
+def make_handler(
+    provider: LLMProvider, limit: Limits = DEFAULT_LIMITS, liff_id: str | None = None
+) -> Handler:
+
+    liff_url = f"https://liff.line.me/{liff_id}" if liff_id else None
+
     async def handle_event(
         session: AsyncSession, user: User, event: InboundEvent
     ) -> None:
@@ -71,7 +76,7 @@ def make_handler(provider: LLMProvider, limit: Limits = DEFAULT_LIMITS) -> Handl
             ):
                 model = MOCK  # today's AI budget is used up: rules only, free
             command = await _ask_model(session, user, event, text, model)
-        reply, critical = await _run(session, user, event, command)
+        reply, critical = await _run(session, user, event, command, liff_url)
         await queue_reply(session, user, event, [reply], critical=critical)
 
     return handle_event
@@ -87,7 +92,9 @@ async def _ask_model(session, user, event, text, provider) -> Command:
     return await interpret(text, context, provider) or Command("unknown")
 
 
-async def _run(session, user, event, command: Command) -> tuple[dict, bool]:
+async def _run(
+    session, user, event, command: Command, liff_url: str | None = None
+) -> tuple[dict, bool]:
     """Returns (LINE message, critical?). Critical = the user must learn the result."""
     tz = user.timezone
     now = event.event_ts  # "today" = when the user sent it, not when we process it
@@ -126,6 +133,11 @@ async def _run(session, user, event, command: Command) -> tuple[dict, bool]:
 
         case "privacy":
             return replies.text(replies.PRIVACY_TEXT, replies.MAIN_BUTTONS), False
+
+        case "calendar":
+            if liff_url is None:
+                return replies.text("ปฏิทินยังไม่เปิดให้ใช้ครับ", replies.MAIN_BUTTONS), False
+            return replies.calendar_card(liff_url), False
 
         case "forget_me":
             await conversation.ask_forget_confirmation(session, user.id, event)

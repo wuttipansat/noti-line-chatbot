@@ -6,11 +6,12 @@ the token belongs to (app/line/liff_auth.py) and only ever touch that user's tas
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.replies import task_day
@@ -30,6 +31,22 @@ class TaskOut(BaseModel):
     time: str | None  # "10:00" local time, or None = all day
     important: bool
     done: bool
+
+
+class TaskIn(BaseModel):
+    """What the add / edit form sends."""
+
+    title: str = Field(min_length=1, max_length=200)
+    date: date
+    time: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    important: bool = False
+
+    def deadline(self, tz: str) -> dict[str, date | datetime | None]:
+        """A time makes it due_at (an exact moment); no time = due_date (all day)."""
+        if self.time is None:
+            return {"due_date": self.date, "due_at": None}
+        local = datetime.combine(self.date, time.fromisoformat(self.time), ZoneInfo(tz))
+        return {"due_date": None, "due_at": local.astimezone(UTC)}
 
 
 class TasksOut(BaseModel):
@@ -121,3 +138,55 @@ async def mark_done(me: CurrentAccount, number: int) -> TaskOut:
 @router.post("/tasks/{number}/undo")
 async def mark_not_done(me: CurrentAccount, number: int) -> TaskOut:
     return await _change(me, number, tasks.reopen_task)
+
+
+@router.post("/tasks", status_code=201)
+async def add(me: CurrentAccount, body: TaskIn) -> TaskOut:
+    tz = me.user.timezone
+    try:
+        task = await tasks.add_task(
+            me.session,
+            me.user.id,
+            body.title,
+            priority=tasks.HIGH if body.important else tasks.MEDIUM,
+            **body.deadline(tz),
+        )
+    except tasks.InvalidTask as error:
+        raise HTTPException(422, str(error)) from None
+    return task_out(task, tz)
+
+
+@router.put("/tasks/{number}")
+async def edit(me: CurrentAccount, number: int, body: TaskIn) -> TaskOut:
+    tz = me.user.timezone
+    try:
+        current = await tasks.get_task(me.session, me.user.id, number)
+        # Keep "low" (1) unless the form turns "important" on or off.
+        if body.important:
+            priority = tasks.HIGH
+        else:
+            priority = (
+                tasks.MEDIUM if current.priority == tasks.HIGH else current.priority
+            )
+        task = await tasks.update_task(
+            me.session,
+            me.user.id,
+            number,
+            title=body.title,
+            priority=priority,
+            **body.deadline(tz),
+        )
+    except tasks.TaskNotFound:
+        raise HTTPException(404, f"task #{number} not found") from None
+    except tasks.InvalidTask as error:
+        raise HTTPException(422, str(error)) from None
+    return task_out(task, tz)
+
+
+@router.delete("/tasks/{number}", status_code=204)
+async def remove(me: CurrentAccount, number: int) -> Response:
+    try:
+        await tasks.delete_task(me.session, me.user.id, number)
+    except tasks.TaskNotFound:
+        raise HTTPException(404, f"task #{number} not found") from None
+    return Response(status_code=204)

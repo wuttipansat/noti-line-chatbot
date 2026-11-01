@@ -35,6 +35,7 @@ WEEK_WORDS = {"งาน 7 วัน", "งาน7วัน", "งานสั�
 ALL_WORDS = {"งานทั้งหมด", "ดูงานทั้งหมด"}
 PRIVACY_WORDS = {"ข้อมูลส่วนตัว", "ความเป็นส่วนตัว", "privacy"}
 FORGET_WORDS = {"ลบข้อมูลของฉัน", "ลบข้อมูลทั้งหมด"}
+CALENDAR_WORDS = {"ปฏิทิน", "เปิดปฏิทิน", "calendar"}
 
 ADD = re.compile(r"^(?:เพิ่มงาน|เพิ่ม|add)\s*(?P<title>.*)$", re.IGNORECASE)
 DONE = re.compile(
@@ -60,6 +61,8 @@ def parse_command(text: str) -> Command:
         return Command("privacy")
     if cleaned in FORGET_WORDS:
         return Command("forget_me")
+    if lowered in CALENDAR_WORDS:
+        return Command("calendar")
     if match := DONE.match(cleaned):
         return Command("done", task_no=int(match["a"] or match["b"]))
     if match := ADD.match(cleaned):

@@ -145,6 +145,29 @@ async def complete_task(session: AsyncSession, user_id: int, task_no: int) -> Ta
     return task
 
 
+async def update_task(
+    session: AsyncSession,
+    user_id: int,
+    task_no: int,
+    *,
+    title: str,
+    priority: int,
+    due_date: date | None,
+    due_at: datetime | None,
+) -> Task:
+    """Replace a task's title, deadline and priority (the calendar's edit form)."""
+    title = _clean_title(title)
+    _check_fields(priority, None, due_date, due_at)
+    task = await get_task(session, user_id, task_no)
+    task.title = title
+    task.priority = priority
+    task.due_date = due_date
+    task.due_at = due_at
+    task.version += 1
+    await session.flush()
+    return task
+
+
 async def reopen_task(session: AsyncSession, user_id: int, task_no: int) -> Task:
     """Undo "done" (the calendar's undo button)."""
     task = await get_task(session, user_id, task_no)

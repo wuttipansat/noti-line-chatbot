@@ -49,6 +49,43 @@
     </div>
   </main>
 
+  <button class="add" id="add" type="button">เพิ่มงาน</button>
+
+  <dialog class="sheet" id="sheet" aria-labelledby="sheet-title">
+    <form id="form" method="dialog" novalidate>
+      <h2 class="sheet-title" id="sheet-title">เพิ่มงาน</h2>
+
+      <label class="field">
+        <span>ชื่องาน</span>
+        <input id="f-title" name="title" type="text" maxlength="200" required autocomplete="off">
+      </label>
+
+      <div class="pair">
+        <label class="field">
+          <span>วันที่</span>
+          <input id="f-date" name="date" type="date" required>
+        </label>
+        <label class="field">
+          <span>เวลา <small>(ว่าง = ทั้งวัน)</small></span>
+          <input id="f-time" name="time" type="time">
+        </label>
+      </div>
+
+      <label class="check">
+        <input id="f-important" name="important" type="checkbox">
+        <span>งานสำคัญ</span>
+      </label>
+
+      <p class="form-error" id="form-error" role="alert" hidden></p>
+
+      <div class="actions">
+        <button class="delete" id="delete" type="button" hidden>ลบงาน</button>
+        <button class="cancel" id="cancel" type="button">ยกเลิก</button>
+        <button class="save" id="save" type="submit">บันทึก</button>
+      </div>
+    </form>
+  </dialog>
+
   <div class="toast" id="toast" role="status" hidden>
     <span id="toast-text"></span>
     <button type="button" id="toast-undo">เลิกทำ</button>

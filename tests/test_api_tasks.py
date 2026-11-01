@@ -130,3 +130,86 @@ def test_range_is_limited(client, make_user_id):
 
     assert month(client, alice, days=0).status_code == 422
     assert month(client, alice, days=400).status_code == 422
+
+
+def test_add_with_and_without_time(client, make_user_id):
+    alice = make_user_id()
+    day = TODAY + timedelta(days=3)
+
+    timed = client.post(
+        "/api/tasks",
+        json={"title": " ซื้อตั๋ว  รถไฟ ", "date": str(day), "time": "18:30"},
+        headers=auth(alice),
+    )
+    all_day = client.post(
+        "/api/tasks",
+        json={"title": "ส่งรายงาน", "date": str(day), "important": True},
+        headers=auth(alice),
+    )
+
+    assert timed.status_code == 201
+    assert timed.json() == {
+        "number": 1,
+        "title": "ซื้อตั๋ว รถไฟ",  # spaces cleaned like chat commands
+        "date": str(day),
+        "time": "18:30",
+        "important": False,
+        "done": False,
+    }
+    assert all_day.json()["time"] is None
+    assert all_day.json()["important"] is True
+
+
+def test_add_rejects_bad_input(client, make_user_id):
+    alice = make_user_id()
+    day = str(TODAY)
+
+    for body in (
+        {"title": "", "date": day},
+        {"title": "   ", "date": day},
+        {"title": "x", "date": day, "time": "25:00"},
+        {"title": "x"},
+    ):
+        response = client.post("/api/tasks", json=body, headers=auth(alice))
+        assert response.status_code == 422, body
+
+
+def test_edit_moves_and_renames_a_task(client, make_user_id):
+    alice = make_user_id()
+    add(alice, "ประชุม", due_date=TODAY)
+    later = TODAY + timedelta(days=1)
+
+    edited = client.put(
+        "/api/tasks/1",
+        json={"title": "ประชุมทีม", "date": str(later), "time": "09:00"},
+        headers=auth(alice),
+    )
+
+    assert edited.json()["title"] == "ประชุมทีม"
+    assert (edited.json()["date"], edited.json()["time"]) == (str(later), "09:00")
+
+    back = client.put(
+        "/api/tasks/1",
+        json={"title": "ประชุมทีม", "date": str(TODAY), "time": None},
+        headers=auth(alice),
+    )
+    assert back.json()["time"] is None  # back to all day
+
+
+def test_delete_hides_the_task(client, make_user_id):
+    alice = make_user_id()
+    add(alice, "ลบฉัน", due_date=TODAY)
+
+    assert client.delete("/api/tasks/1", headers=auth(alice)).status_code == 204
+    assert month(client, alice).json()["tasks"] == []
+    assert client.delete("/api/tasks/1", headers=auth(alice)).status_code == 404
+
+
+def test_cannot_edit_or_delete_someone_elses_task(client, make_user_id):
+    alice, bob = make_user_id(), make_user_id()
+    add(alice, "งานของอลิซ", due_date=TODAY)
+    body = {"title": "ถูกแก้", "date": str(TODAY)}
+
+    assert client.put("/api/tasks/1", json=body, headers=auth(bob)).status_code == 404
+    assert client.delete("/api/tasks/1", headers=auth(bob)).status_code == 404
+    assert month(client, alice).json()["tasks"][0]["title"] == "งานของอลิซ"

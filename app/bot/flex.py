@@ -320,3 +320,42 @@ def note_card(
     if buttons:
         message["quickReply"] = {"items": buttons}
     return message
+
+
+# The seven weekday colours as a calendar shows them: Sunday first.
+SUNDAY_FIRST = [c.fill for c in DAY_COLOURS[6:] + DAY_COLOURS[:6]]
+
+
+def link_card(title: str, body: str, label: str, url: str) -> dict[str, Any]:
+    """A short note with one button that opens a web page (e.g. the LIFF calendar)."""
+    return {
+        "type": "flex",
+        "altText": f"{title}: {url}",
+        "contents": {
+            "type": "bubble",
+            "size": "kilo",
+            "header": _box("vertical", [_binding(SUNDAY_FIRST)], paddingAll="0px"),
+            "body": _box(
+                "vertical",
+                [
+                    _text(title, size="lg", weight="bold", color=INK),
+                    _text(body, size="sm", color=INK_SOFT, wrap=True, margin="sm"),
+                ],
+                paddingAll="16px",
+            ),
+            "footer": _box(
+                "vertical",
+                [
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "color": INK,
+                        "height": "sm",
+                        "action": {"type": "uri", "label": label, "uri": url},
+                    }
+                ],
+                paddingAll="12px",
+                paddingTop="0px",
+            ),
+        },
+    }

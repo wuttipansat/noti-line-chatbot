@@ -38,8 +38,9 @@ async function api(path, options = {}) {
     headers: { Authorization: `Bearer ${state.token}`, ...(options.headers || {}) },
   });
   if (response.status === 401) throw new Error("expired");
+  if (response.status === 422) throw new Error("invalid");
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json();
+  return response.status === 204 ? null : response.json();
 }
 
 async function load() {
@@ -164,8 +165,10 @@ function row(task, dateString, showDate = false) {
   const d = parse(dateString);
   when.textContent = showDate ? `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}` : task.time || "ทั้งวัน";
 
-  const what = document.createElement("span");
+  const what = document.createElement("button"); // tap the task to edit it
+  what.type = "button";
   what.className = "what";
+  what.addEventListener("click", () => openSheet(task));
   const title = document.createElement("span");
   title.className = "title";
   title.textContent = task.title;
@@ -212,6 +215,7 @@ async function setDone(task, done) {
 function showToast(text, undo) {
   clearTimeout(toastTimer);
   $("toast-text").textContent = text;
+  $("toast-undo").hidden = !undo;
   $("toast-undo").onclick = () => { hideToast(); undo(); };
   $("toast").hidden = false;
   toastTimer = setTimeout(hideToast, UNDO_SECONDS * 1000);
@@ -237,6 +241,94 @@ function showNotice(text, actionLabel, action) {
 }
 
 function hideNotice() { $("notice").hidden = true; }
+
+// --- add / edit sheet ---
+let editing = null; // the task being edited, or null when adding
+let deleteTimer = null;
+
+function openSheet(task) {
+  editing = task;
+  const sheet = $("sheet");
+  setDayColours(sheet, task ? task.date : state.selected);
+  $("sheet-title").textContent = task ? `แก้ไขงาน #${task.number}` : "เพิ่มงาน";
+  $("f-title").value = task ? task.title : "";
+  $("f-date").value = task ? task.date : state.selected;
+  $("f-time").value = task?.time || "";
+  $("f-important").checked = task ? task.important : false;
+  $("delete").hidden = !task;
+  resetDelete();
+  $("form-error").hidden = true;
+  sheet.showModal();
+  if (!task) $("f-title").focus();
+}
+
+function closeSheet() { $("sheet").close(); }
+
+function formError(text) {
+  $("form-error").textContent = text;
+  $("form-error").hidden = false;
+}
+
+async function save(event) {
+  event.preventDefault();
+  const body = {
+    title: $("f-title").value.trim(),
+    date: $("f-date").value,
+    time: $("f-time").value || null,
+    important: $("f-important").checked,
+  };
+  if (!body.title) return formError("ใส่ชื่องานก่อนบันทึก");
+  if (!body.date) return formError("เลือกวันที่ก่อนบันทึก");
+
+  $("save").disabled = true;
+  try {
+    const path = editing ? `/api/tasks/${editing.number}` : "/api/tasks";
+    const saved = await api(path, {
+      method: editing ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    closeSheet();
+    showToast(editing ? `บันทึกงาน #${saved.number} แล้ว` : `เพิ่มงาน #${saved.number} แล้ว`);
+    state.selected = saved.date;
+    const d = parse(saved.date);
+    state.year = d.getFullYear();
+    state.month = d.getMonth();
+    await load();
+  } catch (error) {
+    if (error.message === "invalid") formError("บันทึกไม่ได้ ตรวจชื่องาน วันที่ และเวลาอีกครั้ง");
+    else if (error.message === "expired") { closeSheet(); showError(error); }
+    else formError("บันทึกไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองอีกครั้ง");
+  } finally {
+    $("save").disabled = false;
+  }
+}
+
+// Deleting needs two taps: the first turns the button into a confirmation.
+function resetDelete() {
+  clearTimeout(deleteTimer);
+  $("delete").classList.remove("confirm");
+  $("delete").textContent = "ลบงาน";
+}
+
+async function remove() {
+  const button = $("delete");
+  if (!button.classList.contains("confirm")) {
+    button.classList.add("confirm");
+    button.textContent = "กดอีกครั้งเพื่อลบ";
+    deleteTimer = setTimeout(resetDelete, 4000);
+    return;
+  }
+  try {
+    await api(`/api/tasks/${editing.number}`, { method: "DELETE" });
+    closeSheet();
+    showToast(`ลบงาน #${editing.number} แล้ว`);
+    await load();
+  } catch (error) {
+    resetDelete();
+    formError("ลบไม่สำเร็จ ลองอีกครั้ง");
+  }
+}
 
 // --- moving between months ---
 function moveMonth(step) {
@@ -266,6 +358,10 @@ function setUp() {
   $("prev").addEventListener("click", () => moveMonth(-1));
   $("next").addEventListener("click", () => moveMonth(1));
   $("go-today").addEventListener("click", goToday);
+  $("add").addEventListener("click", () => openSheet(null));
+  $("form").addEventListener("submit", save);
+  $("cancel").addEventListener("click", closeSheet);
+  $("delete").addEventListener("click", remove);
 
   // swipe left / right on the grid to change month
   let startX = null;
@@ -321,8 +417,24 @@ const DEMO_TASKS = [
   [8, "ไปรับพัสดุ", "2026-11-04", "17:00", false, false],
 ].map(([number, title, date, time, important, done]) => ({ number, title, date, time, important, done }));
 
-async function demoApi(path) {
+async function demoApi(path, options = {}) {
   await new Promise((r) => setTimeout(r, 150));
+  const method = options.method || "GET";
+  const number = Number(path.split("/")[3]);
+  if (method === "POST" && path === "/api/tasks") {
+    const task = { number: Math.max(...DEMO_TASKS.map((t) => t.number)) + 1, done: false, ...JSON.parse(options.body) };
+    DEMO_TASKS.push(task);
+    return { ...task };
+  }
+  if (method === "PUT") {
+    const task = DEMO_TASKS.find((t) => t.number === number);
+    Object.assign(task, JSON.parse(options.body));
+    return { ...task };
+  }
+  if (method === "DELETE") {
+    DEMO_TASKS.splice(DEMO_TASKS.findIndex((t) => t.number === number), 1);
+    return null;
+  }
   if (path.startsWith("/api/tasks?")) {
     const q = new URLSearchParams(path.split("?")[1]);
     const tasks = DEMO_TASKS.filter((t) => t.date >= q.get("start") && t.date < q.get("end"));

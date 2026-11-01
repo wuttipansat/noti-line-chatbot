@@ -51,7 +51,9 @@ celery_app.conf.update(
 )
 
 WORKER_NAME = f"{socket.gethostname()}:{os.getpid()}"
-handle_event = make_handler(build_provider(settings), Limits.from_settings(settings))
+handle_event = make_handler(
+    build_provider(settings), Limits.from_settings(settings), settings.liff_id
+)
 
 
 def _sessions():

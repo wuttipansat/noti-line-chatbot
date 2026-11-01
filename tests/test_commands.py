@@ -21,6 +21,8 @@ from app.bot.commands import Command, parse_command
         ("#3เสร็จ", Command("done", task_no=3)),
         ("เสร็จ #7", Command("done", task_no=7)),
         ("done 7", Command("done", task_no=7)),
+        ("ปฏิทิน", Command("calendar")),
+        ("Calendar", Command("calendar")),
         ("สวัสดี", Command("unknown")),
         ("#abc เสร็จ", Command("unknown")),
     ],
