@@ -3,6 +3,7 @@
 Runs the real inbox processing against PostgreSQL. Each test cleans up its users.
 """
 
+import json
 from datetime import date, datetime, timedelta
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -420,5 +421,147 @@ def test_fixed_commands_do_not_use_the_ai_budget(make_user_id):
         await say(sessions, alice, "หวัดดี", NOON + timedelta(seconds=2), thrifty)
 
         assert model.calls == 1
+
+    run_committed(scenario)
+
+
+def scripted(answer: dict) -> ScriptedModel:
+    return ScriptedModel(json.dumps(answer, ensure_ascii=False))
+
+
+def add(title, due_date=None, **more) -> dict:
+    return {"action": "add", "title": title, "due_date": due_date, **more}
+
+
+def test_several_tasks_in_one_message_get_one_reply_listing_all(make_user_id):
+    alice = make_user_id()
+    model = scripted(
+        {
+            "commands": [
+                add("ส่งรายงาน", "2026-10-16"),
+                add("ประชุมทีม", "2026-10-17", due_time="14:00"),
+            ]
+        }
+    )
+
+    async def scenario(sessions):
+        handler = make_handler(model)
+        await say(sessions, alice, "พรุ่งนี้ส่งรายงาน แล้วศุกร์ประชุมทีม", handler=handler)
+
+        [row] = await replies_to(sessions, alice)
+        body = row.messages[0]["text"]
+        assert body.startswith("📝 จัดการให้ 2 รายการ")
+        assert "➕ #1 ส่งรายงาน" in body
+        assert "➕ #2 ประชุมทีม" in body
+        assert "⚠" not in body
+        assert row.critical is True
+        async with sessions() as session:
+            saved = await session.scalars(
+                select(Task.title).join(User).where(User.line_user_id == alice)
+            )
+        assert sorted(saved) == sorted(["ส่งรายงาน", "ประชุมทีม"])
+
+    run_committed(scenario)
+
+
+def test_done_and_add_in_one_message(make_user_id):
+    alice = make_user_id()
+    model = scripted(
+        {"commands": [{"action": "done", "task_no": 1}, add("ประชุม", "2026-10-16")]}
+    )
+
+    async def scenario(sessions):
+        await say(sessions, alice, "เพิ่มงาน อ่าน paper")
+        await say(
+            sessions,
+            alice,
+            "อ่านจบแล้ว พรุ่งนี้ประชุม",
+            NOON + timedelta(seconds=5),
+            make_handler(model),
+        )
+
+        body = texts(await replies_to(sessions, alice))[-1]
+        assert "✅ #1 อ่าน paper เสร็จแล้ว" in body
+        assert "➕ #2 ประชุม" in body
+
+    run_committed(scenario)
+
+
+def test_a_part_that_cannot_be_saved_is_named_in_the_reply(make_user_id):
+    alice = make_user_id()
+    model = scripted(
+        {"commands": [add("ส่งรายงาน", "2026-10-16"), add("ประชุมผี", "2026-02-30")]}
+    )
+
+    async def scenario(sessions):
+        await say(sessions, alice, "สองงาน", handler=make_handler(model))
+
+        [row] = await replies_to(sessions, alice)
+        body = row.messages[0]["text"]
+        assert "➕ #1 ส่งรายงาน" in body
+        assert "ไม่เข้าใจอีก 1 รายการ: “ประชุมผี”" in body  # never silently lost
+
+    run_committed(scenario)
+
+
+def test_over_the_limit_is_saved_in_part_and_the_rest_is_reported(make_user_id):
+    alice = make_user_id()
+    items = [add(f"งาน {n}", "2026-10-16") for n in range(7)]
+
+    async def scenario(sessions):
+        handler = make_handler(scripted({"commands": items}))
+        await say(sessions, alice, "เจ็ดงาน", handler=handler)
+
+        body = texts(await replies_to(sessions, alice))[0]
+        assert "จัดการให้ 5 รายการ" in body
+        assert "ส่งได้ทีละ 5 งาน" in body
+        assert "“งาน 5”, “งาน 6”" in body
+        async with sessions() as session:
+            count = await session.scalar(
+                select(func.count())
+                .select_from(Task)
+                .join(User)
+                .where(User.line_user_id == alice)
+            )
+        assert count == 5
+
+    run_committed(scenario)
+
+
+def test_nothing_understood_gives_the_usual_answer(make_user_id):
+    alice = make_user_id()
+    model = scripted({"commands": [add("ก", "2026-02-30"), add("ข", "2026-02-31")]})
+
+    async def scenario(sessions):
+        await say(sessions, alice, "สองงานที่พัง", handler=make_handler(model))
+
+        [body] = texts(await replies_to(sessions, alice))
+        assert body.startswith("ยังไม่เข้าใจครับ")
+
+    run_committed(scenario)
+
+
+def test_one_time_question_in_a_batch_is_asked_after_the_others_are_saved(make_user_id):
+    alice = make_user_id()
+    model = scripted(
+        {
+            "commands": [
+                add("ส่งรายงาน", "2026-10-16"),
+                add("ประชุมทีม", "2026-10-16", time_options=["06:00", "18:00"]),
+            ]
+        }
+    )
+
+    async def scenario(sessions):
+        handler = make_handler(model)
+        await say(sessions, alice, "สองงาน", handler=handler)
+        await say(
+            sessions, alice, "18:00", NOON + timedelta(seconds=5), handler=handler
+        )
+
+        first, second = texts(await replies_to(sessions, alice))
+        assert "➕ #1 ส่งรายงาน" in first
+        assert "⏰ ประชุมทีม" in first and "กี่โมงครับ?" in first
+        assert "ประชุมทีม" in second
 
     run_committed(scenario)

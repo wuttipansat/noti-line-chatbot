@@ -94,3 +94,22 @@ def test_more_thai_days_and_hours(text, due_date, due_time):
 @pytest.mark.parametrize("text", ["ยกเลิกประชุมพรุ่งนี้", "เลื่อนประชุมเป็นศุกร์"])
 def test_changing_a_task_is_not_a_new_task(text):
     assert extract(text)["action"] == "unknown"
+
+
+def test_several_tasks_are_split_when_each_part_is_a_task():
+    answer = extract("พรุ่งนี้ส่งรายงาน แล้วศุกร์ประชุมทีม")
+
+    assert [c["title"] for c in answer["commands"]] == ["ส่งรายงาน", "ประชุมทีม"]
+
+
+def test_numbered_list_one_task_per_line():
+    answer = extract("1. ส่งรายงานพรุ่งนี้\n2. โทรหาลูกค้าศุกร์บ่ายสอง")
+
+    assert [c["title"] for c in answer["commands"]] == ["ส่งรายงาน", "โทรหาลูกค้า"]
+
+
+def test_a_comma_inside_one_task_does_not_split_it():
+    answer = extract("ประชุม, ห้อง 3 พรุ่งนี้")
+
+    assert answer["action"] == "add"
+    assert "commands" not in answer

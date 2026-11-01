@@ -66,6 +66,13 @@ class CloudProvider:
             response = await http.post(self._url, headers=self._headers, json=body)
         return response
 
+    def _system_text(self) -> str:
+        # With json_schema the server already enforces the schema, so the copy in the
+        # text is only needed when we fall back to plain JSON mode.
+        if self._json_mode == "json_object":
+            return f"{SYSTEM_PROMPT}\nJSON schema:\n{SCHEMA_TEXT}"
+        return SYSTEM_PROMPT
+
     async def extract(self, text: str, context: ExtractContext) -> str:
         started = time.perf_counter()
         body = {
@@ -75,7 +82,7 @@ class CloudProvider:
             "messages": [
                 {
                     "role": "system",
-                    "content": f"{SYSTEM_PROMPT}\nJSON schema:\n{SCHEMA_TEXT}",
+                    "content": self._system_text(),
                 },
                 {"role": "user", "content": user_message(text, context)},
             ],

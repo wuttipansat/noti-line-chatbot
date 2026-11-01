@@ -1,13 +1,18 @@
-"""Turn untrusted model output into a trusted Command - or refuse.
+"""Turn untrusted model output into trusted Commands - or refuse.
 
 Every check here exists because a model can return it:
 broken JSON, extra fields, actions never allow, another user's task number,
-dates that do not exist, deadlines in the past. Any failure -> None (no change).
+dates that do not exist, deadlines in the past.
+
+One message can hold several tasks, so the answer is a list. Each item is checked on its
+own: a bad item is SKIPPED AND REPORTED (never silently lost), the good ones are kept.
+A broken answer as a whole -> no commands (no change).
 """
 
 import json
 import logging
 import re
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -21,11 +26,31 @@ from app.bot.commands import Command
 logger = logging.getLogger(__name__)
 
 MAX_DAYS_AHEAD = 366 * 2
+MAX_COMMANDS = 5  # tasks kept from one message
+MAX_RAW_COMMANDS = 20  # more than this in one answer = not a believable answer
+BATCH_ACTIONS = {"add", "done", "ask_time"}  # the only ones that can be combined
 CODE_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
 
 
 class Rejected(ValueError):
     """The model's answer broke a rule. The message says which (for logs only)."""
+
+
+@dataclass(frozen=True)
+class Skipped:
+    """Part of the message we did not act on. The user is told about it."""
+
+    label: str | None  # the task's title, when the model gave one
+    reason: str  # for logs and evals; never shown to the user
+    too_many: bool = False  # True: valid, but over MAX_COMMANDS
+
+
+@dataclass(frozen=True)
+class Plan:
+    """What to do for one message: commands in order, plus what was skipped."""
+
+    commands: tuple[Command, ...] = ()
+    skipped: tuple[Skipped, ...] = ()
 
 
 def _strip_code_fence(raw: str) -> str:
@@ -88,14 +113,8 @@ def _ask_time(intent: AiIntent, context: ExtractContext) -> Command:
     )
 
 
-def validate(raw: str, context: ExtractContext) -> Command:
-    """Check the model's JSON against every rule. Raises Rejected."""
-    try:
-        intent = AiIntent.model_validate_json(_strip_code_fence(raw))
-
-    except (ValidationError, json.JSONDecodeError) as exc:
-        raise Rejected("answer is not valid JSON of the expected schema") from exc
-
+def _command(intent: AiIntent, context: ExtractContext) -> Command:
+    """One item of the answer -> a trusted Command. Raises Rejected."""
     match intent.action:
         case "add":
             if not intent.title or not intent.title.strip():
@@ -124,24 +143,106 @@ def validate(raw: str, context: ExtractContext) -> Command:
             return Command(intent.action)
 
 
-async def interpret_explained(
+def _items(raw: str) -> list:
+    """The list of raw commands. A bare single command (no wrapper) is still accepted."""
+    try:
+        data = json.loads(_strip_code_fence(raw))
+    except json.JSONDecodeError as exc:
+        raise Rejected("answer is not valid JSON of the expected schema") from exc
+    if isinstance(data, dict) and "commands" in data:
+        data = data["commands"]
+    items = data if isinstance(data, list) else [data]
+    if not items:
+        raise Rejected("answer has no commands")
+    if len(items) > MAX_RAW_COMMANDS:
+        raise Rejected(f"answer has {len(items)} commands (limit {MAX_RAW_COMMANDS})")
+    return items
+
+
+def _label(item) -> str | None:
+    title = item.get("title") if isinstance(item, dict) else None
+    return title.strip()[:60] if isinstance(title, str) and title.strip() else None
+
+
+def validate_plan(raw: str, context: ExtractContext) -> Plan:
+    """Check every item of the model's answer. Raises Rejected only if the whole
+    answer is unusable; a bad item is skipped and reported in Plan.skipped."""
+    items = _items(raw)
+    several = len(items) > 1
+    commands: list[Command] = []
+    skipped: list[Skipped] = []
+    asked_time = False
+    for item in items:
+        try:
+            intent = AiIntent.model_validate(item)
+            command = _command(intent, context)
+            if several and command.action not in BATCH_ACTIONS:
+                raise Rejected(f"{command.action} cannot be combined with other tasks")
+        except ValidationError:
+            skipped.append(
+                Skipped(_label(item), "answer is not valid JSON of the expected schema")
+            )
+            continue
+        except Rejected as exc:
+            skipped.append(Skipped(_label(item), str(exc)))
+            continue
+        if command in commands:
+            continue  # the same task twice: keep one
+        if command.action == "ask_time":
+            if asked_time:  # the bot can wait for only one answer at a time
+                skipped.append(Skipped(command.title, "only one time question"))
+                continue
+            asked_time = True
+        if len(commands) == MAX_COMMANDS:
+            skipped.append(Skipped(_label(item), "over the limit", too_many=True))
+            continue
+        commands.append(command)
+    return Plan(tuple(commands), tuple(skipped))
+
+
+def validate(raw: str, context: ExtractContext) -> Command:
+    """Exactly one command, or Rejected. (interpret_plan allows several.)"""
+    plan = validate_plan(raw, context)
+    if len(plan.commands) == 1 and not plan.skipped:
+        return plan.commands[0]
+    if not plan.commands:
+        raise Rejected(plan.skipped[0].reason)
+    raise Rejected("answer holds several commands")
+
+
+async def interpret_plan(
     text: str, context: ExtractContext, provider: LLMProvider
-) -> tuple[Command | None, str]:
-    """Like interpret(), plus why: "ok", or what went wrong (for logs and evals)."""
+) -> tuple[Plan, str]:
+    """Ask the provider, validate every item. Plus why: "ok", or what went wrong."""
     try:
         raw = await provider.extract(text, context)
     except (httpx2.HTTPStatusError, httpx2.TransportError) as exc:
         # Busy, quota or network: expected now and then, one line is enough.
         logger.warning("provider %s unavailable: %s", provider.name, _why(exc))
-        return None, f"provider failed: {_why(exc)}"
+        return Plan(), f"provider failed: {_why(exc)}"
     except Exception as exc:  # anything else is a bug worth a full traceback
         logger.exception("provider %s failed", provider.name)
-        return None, f"provider failed: {type(exc).__name__}"
+        return Plan(), f"provider failed: {type(exc).__name__}"
     try:
-        return validate(raw, context), "ok"
+        plan = validate_plan(raw, context)
     except Rejected as exc:
         logger.warning("provider %s answer rejected: %s", provider.name, exc)
-        return None, f"rejected: {exc}"
+        return Plan(), f"rejected: {exc}"
+    for item in plan.skipped:
+        logger.warning("provider %s item skipped: %s", provider.name, item.reason)
+    if plan.commands:
+        return plan, "ok"
+    return plan, f"rejected: {plan.skipped[0].reason}"
+
+
+async def interpret_explained(
+    text: str, context: ExtractContext, provider: LLMProvider
+) -> tuple[Command | None, str]:
+    """One command (or None) plus why. For messages that hold exactly one task."""
+    plan, why = await interpret_plan(text, context, provider)
+    if len(plan.commands) == 1 and not plan.skipped:
+        return plan.commands[0], why
+    return None, why if why != "ok" else "rejected: answer holds several commands"
 
 
 def _why(exc: Exception) -> str:
@@ -153,6 +254,6 @@ def _why(exc: Exception) -> str:
 async def interpret(
     text: str, context: ExtractContext, provider: LLMProvider
 ) -> Command | None:
-    """Ask the provider, then validate. None = could not get a safe answer."""
+    """Ask the provider, then validate. None = could not get a safe single answer."""
     command, _ = await interpret_explained(text, context, provider)
     return command

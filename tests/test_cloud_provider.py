@@ -110,8 +110,14 @@ def test_http_errors_are_raised_so_fallback_can_take_over(status):
 
 
 def test_schema_has_exactly_the_fields_our_validator_knows():
-    assert set(OUTPUT_SCHEMA["properties"]) == set(AiIntent.model_fields)
-    assert set(OUTPUT_SCHEMA["required"]) == set(AiIntent.model_fields)
+    item = OUTPUT_SCHEMA["properties"]["commands"]["items"]
+    assert set(item["properties"]) == set(AiIntent.model_fields)
+    assert set(item["required"]) == set(AiIntent.model_fields)
+
+
+def test_answer_is_a_list_of_commands():
+    assert OUTPUT_SCHEMA["required"] == ["commands"]
+    assert OUTPUT_SCHEMA["properties"]["commands"]["type"] == "array"
 
 
 def test_busy_provider_is_retried_once():

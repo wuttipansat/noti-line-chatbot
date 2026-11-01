@@ -8,7 +8,7 @@ THAI_DAYS = ["จันทร์", "อังคาร", "พุธ", "พฤห
 NEAR = {0: "วันนี้", 1: "พรุ่งนี้", 2: "มะรืนนี้"}
 CALENDAR_DAYS = 21  # this week, next week, and a bit more
 
-OUTPUT_SCHEMA = {
+INTENT_SCHEMA = {
     "type": "object",
     "properties": {
         "action": {
@@ -36,9 +36,18 @@ OUTPUT_SCHEMA = {
     "additionalProperties": False,
 }
 
+# The answer is a LIST: one message can hold several tasks.
+OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {"commands": {"type": "array", "items": INTENT_SCHEMA}},
+    "required": ["commands"],
+    "additionalProperties": False,
+}
+
 SYSTEM_PROMPT = """\
-You turn one Thai chat message into ONE command for a personal task bot.
-Reply only with JSON that matches the schema.
+You turn one Thai chat message into commands for a personal task bot.
+Reply only with JSON: {"commands": [ ... ]}, each item matching the command schema.
+Most messages are ONE command. See "Several tasks" below for the others.
 
 Actions:
 - add: the user wants to remember a task. title = short task name in the user's words,
@@ -50,9 +59,39 @@ Actions:
 - done: the user says they FINISHED one of their OPEN TASKS ("เสร็จแล้ว", "จบแล้ว",
   "ส่งแล้ว", "done"). task_no must be one listed below. Mentioning a task is not enough:
   "ลืมส่ง", "ต้องส่ง", "จะส่ง" mean it is NOT done (that is an add).
+  A sentence that names a task AND a day or time is an add, even when an open task has
+  the same name: "พรุ่งนี้บ่ายสองส่งรายงาน" = add, not done.
 - today / week / all: the user wants to see tasks due today / in 7 days / all open tasks.
 - help: the user asks what the bot can do.
-- unknown: anything else, or if you are not sure. Never guess.
+- unknown: anything else, or if you are not sure. Never guess. Also unknown:
+  a day or time alone with no task named ("พรุ่งนี้"), and any message that changes or
+  removes a task ("เลื่อน", "ยกเลิก", "แก้", "ลบ", "เปลี่ยน"): those are not supported yet.
+
+Several tasks in one message:
+- If the message clearly holds several separate tasks (several lines, a numbered list,
+  "แล้ว"/"แล้วก็" or commas between different actions), return ONE add command per task,
+  in the order written. Never drop a task and never merge two tasks into one title.
+  Return every task (at most 20): the program tells the user if it can keep only some.
+- A day or time belongs to the task it is written next to. A day written once for the
+  whole message (at the start, or at the end like "... วันนี้") applies to every task
+  that has no day of its own.
+- A list of things for ONE errand ("ซื้อนม ไข่ ขนมปัง") is a single task.
+- done and add can be mixed ("ส่งรายงานเสร็จแล้ว พรุ่งนี้ประชุม" = a done + an add).
+- today / week / all / help / unknown are never combined with other commands:
+  then the list holds that one command only.
+
+Examples (pretend today is Wednesday 2026-10-28; fields not shown are null/default):
+  "พรุ่งนี้ส่งรายงาน แล้วศุกร์ประชุมทีม" ->
+    {"commands": [{"action": "add", "title": "ส่งรายงาน", "due_date": "2026-10-29"},
+                  {"action": "add", "title": "ประชุมทีม", "due_date": "2026-10-30"}]}
+  "พรุ่งนี้ 9 โมงประชุม 11 โมงสัมภาษณ์" ->
+    {"commands": [{"action": "add", "title": "ประชุม", "due_date": "2026-10-29",
+                   "due_time": "09:00"},
+                  {"action": "add", "title": "สัมภาษณ์", "due_date": "2026-10-29",
+                   "due_time": "11:00"}]}
+  "ซื้อนม ล้างรถ วันนี้" ->
+    {"commands": [{"action": "add", "title": "ซื้อนม", "due_date": "2026-10-28"},
+                  {"action": "add", "title": "ล้างรถ", "due_date": "2026-10-28"}]}
 
 Dates (do not calculate them: copy them from the Calendar below):
 - Pick due_date from the Calendar lines. "วันศุกร์" / "ศุกร์นี้" = the first ศุกร์ in the

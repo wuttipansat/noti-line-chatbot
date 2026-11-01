@@ -96,14 +96,63 @@ def test_also_ok_accepts_another_good_action():
     assert check(case, Command("today")) == ["action today (expected unknown)"]
 
 
-def test_hard_set_scores_apart_and_multi_task_cases_are_gaps():
-    from scripts.eval_ai import HARD_CASES, SETS
+def test_the_set_has_50_cases_and_runs_end_to_end():
+    results = asyncio.run(run(MockProvider()))
 
-    results = asyncio.run(run(MockProvider(), cases=HARD_CASES))
-    text = report(results)
+    assert len(CASES) == 50
+    assert len(results) == 50
+    assert any(case.items for case in CASES)
+    assert report(results).splitlines()[-1].startswith("ผ่าน ")
 
-    assert SETS["all"] == CASES + HARD_CASES
-    assert any(case.many for case in HARD_CASES)
-    assert all(not r.ok for r in results if r.case.many)  # one answer, many tasks
-    assert "ยังทำไม่ได้" in text
-    assert "ข้าม" not in text  # gaps are not "skipped"
+
+def _plan(*commands):
+    from app.ai.interpreter import Plan
+
+    return Plan(tuple(commands))
+
+
+def _add(title, day, hour=None):
+    return Command(
+        "add",
+        title=title,
+        due_at=datetime(2026, 10, 29, hour, 0, tzinfo=BKK) if hour else None,
+        due_date=None if hour else day,
+    )
+
+
+def test_several_tasks_must_all_be_there_and_right():
+    from datetime import date
+
+    from scripts.eval_ai import check_plan
+
+    case = Case(
+        "x",
+        "add",
+        items=(
+            Case("", "add", "2026-10-29", None, "ส่งรายงาน"),
+            Case("", "add", "2026-10-29", "14:00", "ประชุม"),
+        ),
+    )
+    day = date(2026, 10, 29)
+
+    both = _plan(_add("ส่งรายงาน", day), _add("ประชุม", day, 14))
+    assert check_plan(case, both) == []
+
+    dropped = _plan(_add("ประชุม", day, 14))
+    assert check_plan(case, dropped) == ["1 tasks (expected 2)"]
+
+    wrong_time = _plan(_add("ส่งรายงาน", day), _add("ประชุม", day, 15))
+    assert check_plan(case, wrong_time) == ["task 2: time 15:00 (expected 14:00)"]
+
+
+def test_two_tasks_where_one_was_expected_is_wrong():
+    from datetime import date
+
+    from scripts.eval_ai import check_plan
+
+    case = Case("x", "add", None, None, "นม")
+    day = date(2026, 10, 29)
+
+    plan = _plan(_add("นม", None), _add("ไข่", day))
+
+    assert check_plan(case, plan) == ["2 tasks (expected 1)"]

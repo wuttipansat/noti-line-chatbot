@@ -12,7 +12,7 @@ reply in the outbox are committed together — or not at all.
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.interpreter import interpret
+from app.ai.interpreter import MAX_COMMANDS, Plan, interpret_plan
 from app.ai.mock import MockProvider
 from app.ai.provider import ExtractContext, LLMProvider, OpenTask
 from app.bot import replies
@@ -69,20 +69,28 @@ def make_handler(
             return
         if command is None:
             command = parse_command(text)
+        plan = Plan((command,))
         if command.action == "unknown":
             model = provider
             if not await limits.take_ai_call(
                 session, user, event.event_ts, limit.ai_per_day
             ):
                 model = MOCK  # today's AI budget is used up: rules only, free
-            command = await _ask_model(session, user, event, text, model)
-        reply, critical = await _run(session, user, event, command, liff_url)
+            plan = await _ask_model(session, user, event, text, model)
+        if len(plan.commands) == 1 and not plan.skipped:  # the usual case
+            reply, critical = await _run(
+                session, user, event, plan.commands[0], liff_url
+            )
+        elif plan.commands:  # several tasks, or some part was not understood
+            reply, critical = await _run_batch(session, user, event, plan)
+        else:
+            reply, critical = await _run(session, user, event, Command("unknown"))
         await queue_reply(session, user, event, [reply], critical=critical)
 
     return handle_event
 
 
-async def _ask_model(session, user, event, text, provider) -> Command:
+async def _ask_model(session, user, event, text, provider) -> Plan:
     open_tasks = await tasks.list_open_tasks(session, user.id)
     sent_at = local_now(event.event_ts, user.timezone)  # when the user wrote it
     context = ExtractContext(
@@ -91,7 +99,67 @@ async def _ask_model(session, user, event, text, provider) -> Command:
         open_tasks=[OpenTask(t.task_no, t.title) for t in open_tasks],
         now=sent_at.time().replace(second=0, microsecond=0),
     )
-    return await interpret(text, context, provider) or Command("unknown")
+    plan, _ = await interpret_plan(text, context, provider)
+    return plan
+
+
+async def _run_batch(session, user, event, plan: Plan) -> tuple[dict, bool]:
+    """Several commands from one message -> ONE reply that says what happened to each.
+
+    Nothing is silent: saved, not found, not understood and over-the-limit all show up.
+    """
+    tz = user.timezone
+    lines: list[str] = []
+    saved = 0
+    buttons = [("งานวันนี้", "งานวันนี้"), ("งานทั้งหมด", "งานทั้งหมด")]
+    for command in plan.commands:
+        match command.action:
+            case "add":
+                try:
+                    task = await tasks.add_task(
+                        session,
+                        user.id,
+                        command.title or "",
+                        due_date=command.due_date,
+                        due_at=command.due_at,
+                        priority=command.priority,
+                        estimated_minutes=command.estimated_minutes,
+                    )
+                except tasks.InvalidTask:
+                    lines.append(f"⚠ บันทึก “{command.title}” ไม่ได้")
+                    continue
+                lines.append("➕ " + replies.task_line(task, tz, show_day=True))
+                saved += 1
+            case "done":
+                try:
+                    task = await tasks.complete_task(session, user.id, command.task_no)
+                except tasks.TaskNotFound:
+                    lines.append(f"⚠ ไม่พบงาน #{command.task_no}")
+                    continue
+                lines.append(f"✅ #{task.task_no} {task.title} เสร็จแล้ว")
+                saved += 1
+            case "ask_time":  # at most one per message (the interpreter makes sure)
+                await conversation.ask_time(session, user.id, event, command)
+                day = replies.thai_date(command.due_date)
+                lines.append(f"⏰ {command.title} ({day}) กี่โมงครับ?")
+                buttons = [(t, t) for t in command.time_options] + [("ยกเลิก", "ยกเลิก")]
+
+    head = f"📝 จัดการให้ {len(plan.commands)} รายการ"
+    body = "\n".join([head, *lines])
+    unclear = [x for x in plan.skipped if not x.too_many]
+    over = [x for x in plan.skipped if x.too_many]
+    if unclear:
+        names = ", ".join(f"“{x.label}”" for x in unclear if x.label)
+        extra = f": {names}" if names else ""
+        body += f"\n\n⚠ ไม่เข้าใจอีก {len(unclear)} รายการ{extra}\nลองพิมพ์ใหม่แยกทีละงานนะครับ"
+    if over:
+        names = ", ".join(f"“{x.label}”" for x in over if x.label)
+        extra = f": {names}" if names else ""
+        body += (
+            f"\n\n⚠ ส่งได้ทีละ {MAX_COMMANDS} งานครับ ยังไม่ได้บันทึกอีก {len(over)} งาน{extra}"
+            "\nส่งส่วนที่เหลือมาอีกครั้งได้เลย"
+        )
+    return replies.text(body, buttons), saved > 0
 
 
 async def _run(

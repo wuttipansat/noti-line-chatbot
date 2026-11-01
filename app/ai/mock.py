@@ -49,6 +49,10 @@ MORNING_HOUR = re.compile(
 SIX_AM = re.compile(rf"(?<!\d)(?:6|หก)\s*โมงเช้า{HALF}")
 MORNING_NUMBERS = {"เจ็ด": 7, "แปด": 8, "เก้า": 9, "สิบ": 10, "สิบเอ็ด": 11}
 # Not supported yet: never turn "cancel the meeting" into a new task called "cancel".
+# Several tasks in one message: lines, commas, "แล้ว" (needs a space before it, so that
+# "เสร็จแล้ว" is not cut in half), with list numbers/bullets in front of each part.
+SPLIT = re.compile(r"\n+|\s*[,;]\s*|\s+แล้ว(?:ก็)?\s*")
+BULLET = re.compile(r"^\s*(?:\d+[.)]|[-•*])\s*")
 CHANGE = re.compile(r"ยกเลิก|เลื่อน|ลบ|แก้|เปลี่ยน")
 QUESTION = re.compile(r"อะไร|ไหม|มั้ย|บ้าง|หรือเปล่า|\?")  # asking, not telling
 URGENT = re.compile(r"\s*ด่วน(?:มาก|ที่สุด)?")
@@ -67,6 +71,13 @@ class MockProvider:
     name = "mock"
 
     async def extract(self, text: str, context: ExtractContext) -> str:
+        parts = [BULLET.sub("", part).strip() for part in SPLIT.split(text)]
+        parts = [part for part in parts if part]
+        if len(parts) > 1:
+            answers = [self._parse(part, context) for part in parts]
+            # Only when at least two parts are tasks: "ประชุม, ห้อง 3 พรุ่งนี้" is one task.
+            if sum(a["action"] == "add" for a in answers) >= 2:
+                return json.dumps({"commands": answers}, ensure_ascii=False)
         return json.dumps(self._parse(text, context), ensure_ascii=False)
 
     @staticmethod
