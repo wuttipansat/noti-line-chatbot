@@ -53,8 +53,7 @@ async def queue_digest(session: AsyncSession, user_id: int, now: datetime) -> bo
     if not view.overdue and not view.today:
         return False
 
-    message = replies.today_reply(view, user.timezone)
-    message["text"] = "☀️ อรุณสวัสดิ์ครับ\n" + message["text"]
+    message = replies.today_reply(view, user.timezone, greeting="อรุณสวัสดิ์ครับ")
     queued_id = await session.scalar(
         insert(OutboundMessage)
         .values(

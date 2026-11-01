@@ -1,8 +1,9 @@
 """Turn results into LINE messages (Thai). Pure functions, no database."""
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
+from app.bot import flex
 from app.db.models import Task
 from app.services.dates import local_now
 from app.services.task_service import TodayView
@@ -74,8 +75,9 @@ def text(body: str, buttons: list[tuple[str, str]] | None = None) -> dict[str, A
     return message
 
 
-def task_line(task: Task, tz: str, show_day: bool = False) -> str:
-    parts = [f"#{task.task_no} {task.title}"]
+def task_meta(task: Task, tz: str, show_day: bool = False) -> str:
+    """The small line under a task: "14:00 · สูง" or "พฤ. 15 ต.ค. 14:00"."""
+    parts = []
     if task.due_at is not None:
         local = local_now(task.due_at, tz)
         when = local.strftime("%H:%M")
@@ -87,28 +89,126 @@ def task_line(task: Task, tz: str, show_day: bool = False) -> str:
     return " · ".join(parts)
 
 
-def done_buttons(tasks: list[Task]) -> list[tuple[str, str]]:
-    return [(f"เสร็จ #{t.task_no}", f"#{t.task_no} เสร็จ") for t in tasks[:3]]
+def task_line(task: Task, tz: str, show_day: bool = False) -> str:
+    meta = task_meta(task, tz, show_day)
+    return f"#{task.task_no} {task.title}" + (f" · {meta}" if meta else "")
 
 
-def today_reply(view: TodayView, tz: str) -> dict[str, Any]:
-    lines = [f"📋 งานวันนี้ ({thai_date(view.local_date)})"]
+def task_day(task: Task, tz: str) -> date | None:
+    """The local day a task is due, or None."""
+    if task.due_at is not None:
+        return local_now(task.due_at, tz).date()
+    return task.due_date
+
+
+def _clock(task: Task, tz: str) -> str:
+    if task.due_at is None:
+        return "ทั้งวัน"
+    return local_now(task.due_at, tz).strftime("%H:%M")
+
+
+def _short_day(task: Task, tz: str) -> str:
+    """Overdue tasks show their date ("13 ต.ค.") in the time column."""
+    day = task_day(task, tz)
+    return f"{day.day} {THAI_MONTHS[day.month - 1]}" if day else ""
+
+
+def _row(task: Task, when: str, overdue: bool = False) -> flex.Row:
+    important = task.priority == 3
+    return flex.Row(task.task_no, when, task.title, important, overdue)
+
+
+def today_reply(view: TodayView, tz: str, greeting: str | None = None) -> dict[str, Any]:
+    """Today's tasks as a tear-off calendar page (a small page when there is nothing)."""
+    day = thai_date(view.local_date)
+    if not view.overdue and not view.today:
+        return free_day_card(view.local_date)
+
+    count = len(view.overdue) + len(view.today)
+    # The notification shows the first lines: lead with the day and the count.
+    lines = [f"📋 งานวันนี้ ({day}) มี {count} งาน"]
     if view.overdue:
         lines.append("⚠ เลยกำหนด")
         lines += [task_line(t, tz, show_day=True) for t in view.overdue]
     if view.today:
         lines.append("วันนี้")
         lines += [task_line(t, tz) for t in view.today]
-    if not view.overdue and not view.today:
-        lines.append("ไม่มีงานที่ต้องทำวันนี้ 🎉")
-    buttons = done_buttons(view.overdue + view.today) + [("งาน 7 วัน", "งาน 7 วัน")]
-    return text("\n".join(lines), buttons)
+    if greeting:
+        lines.insert(0, greeting)
+
+    overdue = [_row(t, _short_day(t, tz), overdue=True) for t in view.overdue]
+    sections = [
+        flex.Section("เลยกำหนด", overdue, late=True),
+        flex.Section("วันนี้" if overdue else "", [_row(t, _clock(t, tz)) for t in view.today]),
+    ]
+    line = f"{greeting} วันนี้มี {count} งาน" if greeting else None
+    mood = "worried" if view.overdue else ("wink" if greeting else "normal")
+    buttons = [("งาน 7 วัน", "งาน 7 วัน"), ("งานทั้งหมด", "งานทั้งหมด")]
+    return flex.task_card(
+        flex.calendar_page(view.local_date, line, mood),
+        sections,
+        alt_text="\n".join(lines),
+        buttons=quick_replies(buttons)["items"],
+    )
 
 
-def list_reply(heading: str, tasks: list[Task], tz: str) -> dict[str, Any]:
+def free_day_card(day: date) -> dict[str, Any]:
+    """Nothing to do today: just the page and a happy robot."""
+    return flex.note_card(
+        flex.calendar_page(day, "ไม่มีงานที่ต้องทำวันนี้", "happy"),
+        alt_text=f"📋 งานวันนี้ ({thai_date(day)})\nไม่มีงานที่ต้องทำวันนี้",
+        buttons=quick_replies(MAIN_BUTTONS)["items"],
+    )
+
+
+def _relative(day: date, today: date | None) -> str:
+    if today is None:
+        return ""
+    if day < today:
+        return "เลยกำหนด"
+    return {0: "วันนี้", 1: "พรุ่งนี้"}.get((day - today).days, "")
+
+
+def _by_day(tasks: list[Task], tz: str, today: date | None) -> list[flex.Section]:
+    """Group tasks under a heading per day, like a calendar's agenda view."""
+    sections: list[flex.Section] = []
+    for task in tasks:
+        day = task_day(task, tz)
+        label = thai_date(day) if day else "ไม่กำหนดวัน"
+        if not sections or sections[-1].label != label:
+            if day is None:
+                sections.append(flex.Section(label, []))
+            else:
+                note = _relative(day, today)
+                late = today is not None and day < today
+                marker = flex.day_colour(day).fill
+                sections.append(flex.Section(label, [], marker, note, late))
+        sections[-1].rows.append(_row(task, _clock(task, tz) if day else ""))
+    return sections
+
+
+def list_reply(
+    heading: str,
+    tasks: list[Task],
+    tz: str,
+    today: date | None = None,
+    week: bool = False,
+) -> dict[str, Any]:
+    """Tasks grouped by day. week=True: the header strip shows the next 7 days."""
     if not tasks:
         return text(f"{heading}\nยังไม่มีงาน", MAIN_BUTTONS)
-    lines = [heading] + [task_line(t, tz, show_day=True) for t in tasks[:20]]
-    if len(tasks) > 20:
-        lines.append(f"…และอีก {len(tasks) - 20} งาน")
-    return text("\n".join(lines), done_buttons(tasks) + MAIN_BUTTONS[:1])
+    lines = [f"{heading} {len(tasks)} งาน"] + [task_line(t, tz, show_day=True) for t in tasks]
+    _, _, title = heading.partition(" ")  # drop the emoji
+    if week and today is not None:
+        last = today + timedelta(days=6)
+        subtitle = f"{today.day} {THAI_MONTHS[today.month - 1]} ถึง {thai_date(last)}"
+        binding = flex.week_binding(today)
+    else:
+        subtitle = "เรียงตามวันที่ต้องทำ"
+        binding = [flex.PERFORATION]
+    return flex.task_card(
+        flex.list_page(title or heading, subtitle, f"{len(tasks)} งาน", binding),
+        _by_day(tasks, tz, today),
+        alt_text="\n".join(lines),
+        buttons=quick_replies(MAIN_BUTTONS[:2])["items"],
+    )

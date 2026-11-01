@@ -75,7 +75,8 @@ async def replies_to(sessions, line_user_id: str) -> list[OutboundMessage]:
 
 
 def texts(rows: list[OutboundMessage]) -> list[str]:
-    return [row.messages[0]["text"] for row in rows]
+    """The text of each reply. A Flex card has no "text": use its altText."""
+    return [row.messages[0].get("text") or row.messages[0]["altText"] for row in rows]
 
 
 def test_add_then_done(make_user_id):

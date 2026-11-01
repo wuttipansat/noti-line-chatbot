@@ -87,8 +87,9 @@ def test_digest_is_queued_once_per_day(line_user_id):
         assert row.idempotency_key == f"daily:{user_id}:2026-10-20"
         assert row.critical is True
         assert row.reply_token is None
-        body = row.messages[0]["text"]
-        assert body.startswith("☀️ อรุณสวัสดิ์ครับ\n📋 งานวันนี้ (อ. 20 ต.ค.)")
+        assert row.messages[0]["type"] == "flex"
+        body = row.messages[0]["altText"]
+        assert body.startswith("อรุณสวัสดิ์ครับ\n📋 งานวันนี้ (อ. 20 ต.ค.) มี 1 งาน")
         assert "#1 ส่งรายงาน · 14:00" in body
 
     run_committed(scenario)
