@@ -154,7 +154,9 @@ async def _run(session, user, event, command: Command) -> tuple[dict, bool]:
         case "week":
             week = await tasks.week_view(session, user.id, now)
             today = local_today(now, tz)
-            return replies.list_reply("🗓 งาน 7 วันข้างหน้า", week, tz, today, week=True), False
+            return replies.list_reply(
+                "🗓 งาน 7 วันข้างหน้า", week, tz, today, week=True
+            ), False
 
         case "all":
             open_tasks = await tasks.list_open_tasks(session, user.id)

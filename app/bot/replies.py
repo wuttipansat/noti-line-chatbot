@@ -118,7 +118,9 @@ def _row(task: Task, when: str, overdue: bool = False) -> flex.Row:
     return flex.Row(task.task_no, when, task.title, important, overdue)
 
 
-def today_reply(view: TodayView, tz: str, greeting: str | None = None) -> dict[str, Any]:
+def today_reply(
+    view: TodayView, tz: str, greeting: str | None = None
+) -> dict[str, Any]:
     """Today's tasks as a tear-off calendar page (a small page when there is nothing)."""
     day = thai_date(view.local_date)
     if not view.overdue and not view.today:
@@ -139,7 +141,9 @@ def today_reply(view: TodayView, tz: str, greeting: str | None = None) -> dict[s
     overdue = [_row(t, _short_day(t, tz), overdue=True) for t in view.overdue]
     sections = [
         flex.Section("เลยกำหนด", overdue, late=True),
-        flex.Section("วันนี้" if overdue else "", [_row(t, _clock(t, tz)) for t in view.today]),
+        flex.Section(
+            "วันนี้" if overdue else "", [_row(t, _clock(t, tz)) for t in view.today]
+        ),
     ]
     line = f"{greeting} วันนี้มี {count} งาน" if greeting else None
     mood = "worried" if view.overdue else ("wink" if greeting else "normal")
@@ -197,7 +201,9 @@ def list_reply(
     """Tasks grouped by day. week=True: the header strip shows the next 7 days."""
     if not tasks:
         return text(f"{heading}\nยังไม่มีงาน", MAIN_BUTTONS)
-    lines = [f"{heading} {len(tasks)} งาน"] + [task_line(t, tz, show_day=True) for t in tasks]
+    lines = [f"{heading} {len(tasks)} งาน"] + [
+        task_line(t, tz, show_day=True) for t in tasks
+    ]
     _, _, title = heading.partition(" ")  # drop the emoji
     if week and today is not None:
         last = today + timedelta(days=6)

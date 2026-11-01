@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     line_channel_secret: SecretStr | None = None
     line_channel_access_token: SecretStr | None = None
     line_api_base_url: str = "https://api.line.me"
+    liff_id: str | None = None
+    line_login_channel_id: str | None = None
+
     daily_digest_time: time = time(7, 0)
 
     llm_provider: Literal["mock", "cloud"] = "mock"
@@ -45,7 +48,12 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
-        "line_channel_secret", "line_channel_access_token", "llm_api_key", mode="before"
+        "line_channel_secret",
+        "line_channel_access_token",
+        "llm_api_key",
+        "liff_id",
+        "line_login_channel_id",
+        mode="before",
     )
     @classmethod
     def line_validator(cls, value):

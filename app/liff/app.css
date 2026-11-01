@@ -1,0 +1,273 @@
+/* AI Planner calendar (LIFF). Paper and ink; the Thai weekday colours are the
+   only colour, the same tokens as the chat cards (app/bot/flex.py). */
+
+:root {
+  --paper: #ffffff;
+  --ink: #1f2329;
+  --ink-soft: #5f6670;
+  --rule: #e4e6ea;
+  --chip: #f0f1f3;
+  --late: #b42318;
+  --late-tint: #fdecea;
+  --focus: #1f5fa8;
+
+  /* weekday colours: fill = shapes, ink = text on paper (Monday first) */
+  --mon: #f4c21b; --mon-ink: #8a6100;
+  --tue: #e8559a; --tue-ink: #b0326e;
+  --wed: #2ba866; --wed-ink: #17784a;
+  --thu: #f07f1f; --thu-ink: #b0510a;
+  --fri: #3b8fe0; --fri-ink: #1f5fa8;
+  --sat: #8357d6; --sat-ink: #5e36a8;
+  --sun: #e5484d; --sun-ink: #b42328;
+
+  --display: "Bai Jamjuree", "IBM Plex Sans Thai Looped", system-ui, sans-serif;
+  --text: "IBM Plex Sans Thai Looped", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #16181b;
+    --ink: #eceef0;
+    --ink-soft: #a3a9b1;
+    --rule: #2b2e33;
+    --chip: #24272b;
+    --late: #ff8f85;
+    --late-tint: #3a1f1d;
+    --focus: #7db4f0;
+    /* on dark paper the bright fills read well as text */
+    --mon-ink: #f4c21b; --tue-ink: #f27ab3; --wed-ink: #4cc985; --thu-ink: #f59a4e;
+    --fri-ink: #6aaaf0; --sat-ink: #a585e6; --sun-ink: #f07175;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 15px/1.5 var(--text);
+  -webkit-text-size-adjust: 100%;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+[hidden] { display: none !important; }
+
+/* the strip the pages hang from: today's colour, like the chat cards */
+.binding { height: 6px; background: var(--day, var(--rule)); }
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 12px 10px 16px;
+}
+
+.month {
+  flex: 1;
+  margin: 0;
+  font: 700 24px/1.2 var(--display);
+  letter-spacing: -0.01em;
+}
+
+.nav { display: flex; align-items: center; gap: 2px; }
+
+.icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.today-btn {
+  margin-left: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+/* --- month grid --- */
+.weekdays, .grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.weekdays div {
+  padding: 6px 0 4px;
+  border-top: 3px solid var(--c);
+  text-align: center;
+  font: 500 12px var(--display);
+  color: var(--ink-soft);
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  height: 66px;
+  padding: 3px 2px;
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  overflow: hidden;
+  text-align: left;
+}
+
+.cell:nth-child(7n) { border-right: 0; }
+
+.num {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin: 0 0 1px 1px;
+  font: 500 13px var(--display);
+  font-variant-numeric: tabular-nums;
+}
+
+.cell.other .num { color: var(--ink-soft); opacity: 0.55; }
+.cell.today .num { background: var(--day); color: var(--on-day, #fff); border-radius: 5px; font-weight: 700; }
+.cell.selected { box-shadow: inset 0 0 0 2px var(--ink); }
+
+.chip {
+  overflow: hidden;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--chip);
+  font-size: 10.5px;
+  line-height: 15px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chip.done { background: none; color: var(--ink-soft); text-decoration: line-through; }
+.chip.late { background: var(--late-tint); color: var(--late); }
+.more { padding-left: 3px; font-size: 10.5px; color: var(--ink-soft); }
+
+/* --- the selected day: a tear-off page --- */
+.day { padding: 14px 16px 96px; }
+
+.day-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--rule);
+}
+
+.day-num {
+  min-width: 1.2em;
+  font: 700 46px/1 var(--display);
+  letter-spacing: -0.03em;
+  color: var(--day-ink, var(--ink));
+}
+
+.day-text { flex: 1; min-width: 0; }
+.day-count { margin: 0; align-self: flex-end; font-size: 13px; color: var(--ink-soft); }
+
+.section {
+  margin: 14px 0 0;
+  font: 600 13px var(--text);
+  color: var(--ink);
+}
+
+.section.late-label { color: var(--late); }
+
+.day-name { margin: 0; font-weight: 600; font-size: 16px; color: var(--day-ink, var(--ink)); }
+.day-sub { margin: 0; font-size: 13px; color: var(--ink-soft); }
+
+.agenda { margin: 0; padding: 0; list-style: none; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.row .when { width: 48px; flex: none; font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.row.late .when { color: var(--late); }
+.row .what { flex: 1; min-width: 0; }
+.row .title { display: block; overflow-wrap: anywhere; }
+.row.important .title { font-weight: 600; }
+.row .meta { font-size: 12px; color: var(--ink-soft); }
+.row.done .title { color: var(--ink-soft); text-decoration: line-through; }
+
+.tick {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+}
+
+.tick span {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--ink-soft);
+  border-radius: 2px;
+}
+
+.tick[aria-pressed="true"] span {
+  border-color: var(--ink);
+  background: var(--ink);
+  box-shadow: inset 0 0 0 3px var(--paper);
+}
+
+.empty { padding: 18px 0; color: var(--ink-soft); }
+
+/* --- loading: grey bars where the chips will be --- */
+.loading .cell::after {
+  content: "";
+  height: 10px;
+  margin: 2px 2px 0;
+  border-radius: 3px;
+  background: var(--chip);
+}
+
+/* --- messages --- */
+.notice {
+  margin: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+}
+
+.notice p { margin: 0 0 8px; }
+.notice button, .toast button { font-weight: 600; text-decoration: underline; }
+
+.toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--ink);
+  color: var(--paper);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .toast { animation: rise 160ms ease-out; }
+  @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
+}

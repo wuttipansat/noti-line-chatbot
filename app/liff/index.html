@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>ปฏิทิน AI Planner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;700&family=IBM+Plex+Sans+Thai+Looped:wght@400;600&display=swap">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="binding" id="binding" aria-hidden="true"></div>
+
+  <header class="top">
+    <h1 class="month" id="month-title">ปฏิทิน</h1>
+    <nav class="nav" aria-label="เปลี่ยนเดือน">
+      <button class="icon" id="prev" type="button" aria-label="เดือนก่อน">‹</button>
+      <button class="icon" id="next" type="button" aria-label="เดือนถัดไป">›</button>
+      <button class="today-btn" id="go-today" type="button">วันนี้</button>
+    </nav>
+  </header>
+
+  <main>
+    <div class="weekdays" id="weekdays" aria-hidden="true"></div>
+    <div class="grid" id="grid" aria-label="ตารางวันในเดือน"></div>
+
+    <section class="day" id="day" aria-live="polite">
+      <div class="day-head">
+        <span class="day-num" id="day-num"></span>
+        <div class="day-text">
+          <p class="day-name" id="day-name"></p>
+          <p class="day-sub" id="day-sub"></p>
+        </div>
+        <p class="day-count" id="day-count"></p>
+      </div>
+      <div id="late-block" hidden>
+        <h2 class="section late-label">เลยกำหนด</h2>
+        <ul class="agenda" id="late"></ul>
+        <h2 class="section">วันนี้</h2>
+      </div>
+      <ul class="agenda" id="agenda"></ul>
+    </section>
+
+    <div class="notice" id="notice" hidden>
+      <p id="notice-text"></p>
+      <button type="button" id="notice-action" hidden></button>
+    </div>
+  </main>
+
+  <div class="toast" id="toast" role="status" hidden>
+    <span id="toast-text"></span>
+    <button type="button" id="toast-undo">เลิกทำ</button>
+  </div>
+
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

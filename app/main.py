@@ -1,14 +1,21 @@
+from pathlib import Path
+
 from contextlib import asynccontextmanager
 from functools import partial
 
 from fastapi import FastAPI, Request, Response
+from fastapi.staticfiles import StaticFiles
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import Settings, get_settings
 from app.health import check_database, check_redis, run_checks
 from app.line.webhook import router as line_router
+from app.api.tasks import router as api_router
+from app.line.liff_auth import TokenVerifier
 from app.worker import enqueue_inbox
+
+LIFF_DIR = Path(__file__).parent / "liff"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -39,6 +46,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.enqueue_inbox = enqueue_inbox
     app.include_router(line_router)
+
+    app.state.liff_verifier = (
+        TokenVerifier(settings.line_login_channel_id)
+        if settings.line_login_channel_id
+        else None
+    )
+    app.include_router(api_router)
+    app.mount("/liff", StaticFiles(directory=LIFF_DIR, html=True), name="liff")
 
     @app.get("/health")
     async def health() -> dict[str, str]:

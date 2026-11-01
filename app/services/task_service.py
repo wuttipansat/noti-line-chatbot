@@ -145,6 +145,17 @@ async def complete_task(session: AsyncSession, user_id: int, task_no: int) -> Ta
     return task
 
 
+async def reopen_task(session: AsyncSession, user_id: int, task_no: int) -> Task:
+    """Undo "done" (the calendar's undo button)."""
+    task = await get_task(session, user_id, task_no)
+    if task.status == "done":
+        task.status = "todo"
+        task.completed_at = None
+        task.version += 1
+        await session.flush()
+    return task
+
+
 async def delete_task(session: AsyncSession, user_id: int, task_no: int) -> None:
     task = await get_task(session, user_id, task_no)
     task.deleted_at = _now()
@@ -222,4 +233,19 @@ async def week_view(
         )
     )
 
+    return _sort_by_deadline(list(result), tz)
+
+
+async def tasks_between(
+    session: AsyncSession, user_id: int, first_day: date, end_day: date
+) -> list[Task]:
+    """Every task (open or done) due from first_day up to, not including, end_day."""
+    tz = await _user_timezone(session, user_id)
+    result = await session.scalars(
+        select(Task).where(
+            Task.user_id == user_id,
+            Task.deleted_at.is_(None),
+            _due_between(first_day, end_day, tz),
+        )
+    )
     return _sort_by_deadline(list(result), tz)
