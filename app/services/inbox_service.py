@@ -73,16 +73,42 @@ async def log_only(session: AsyncSession, user: User, event: InboundEvent) -> No
     logger.info("user %s sent %s (%d chars)", user.id, event.event_type, len(text))
 
 
-async def _process_one(
+async def _run_handler(
     sessions: async_sessionmaker, user: User, event_id: int, handler: Handler
 ) -> None:
-    try:
+    """A plain handler runs in one transaction. A split handler (prepare / think /
+    finish) waits for its slow `think` step with no transaction open: no database
+    connection or row lock is held while the model answers."""
+    if not hasattr(handler, "is_slow"):
         async with sessions.begin() as session:
             event = await session.get(InboundEvent, event_id)
             await handler(session, user, event)
             event.status = "done"
             event.attempts += 1
+        return
 
+    async with sessions.begin() as session:
+        event = await session.get(InboundEvent, event_id)
+        step = await handler.prepare(session, user, event)
+        if not handler.is_slow(step):  # quick case: finish in the same transaction
+            if step is not None:
+                await handler.finish(session, user, event, step)
+            event.status = "done"
+            event.attempts += 1
+            return
+    plan = await handler.think(step)  # slow; nothing is open or locked
+    async with sessions.begin() as session:
+        event = await session.get(InboundEvent, event_id)
+        await handler.finish(session, user, event, plan)
+        event.status = "done"
+        event.attempts += 1
+
+
+async def _process_one(
+    sessions: async_sessionmaker, user: User, event_id: int, handler: Handler
+) -> None:
+    try:
+        await _run_handler(sessions, user, event_id, handler)
     except Exception as exc:
         logger.exception("event %s failed", event_id)
         async with sessions.begin() as session:

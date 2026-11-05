@@ -9,7 +9,8 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
+from sqlalchemy import text as text_sql
 
 from app.bot.handler import SLOW_DOWN, handle_event, make_handler
 from app.db.models import InboundEvent, OutboundMessage, Task, User
@@ -729,5 +730,44 @@ def test_in_a_batch_the_past_one_is_named_and_the_other_is_saved(make_user_id):
         body = row.messages[0]["text"]
         assert "➕ #1 ส่งรายงาน" in body
         assert "ผ่านไปแล้ว 1 รายการ: “ประชุม”" in body
+
+    run_committed(scenario)
+
+
+class SlowModel:
+    """While the model 'thinks', try to change the user's row from another session."""
+
+    name = "slow"
+
+    def __init__(self, sessions, line_user_id):
+        self.sessions = sessions
+        self.line_user_id = line_user_id
+        self.got_lock = None
+
+    async def extract(self, text, context):
+        try:
+            async with self.sessions.begin() as session:
+                await session.execute(text_sql("SET LOCAL lock_timeout = '500ms'"))
+                await session.execute(
+                    update(User)
+                    .where(User.line_user_id == self.line_user_id)
+                    .values(timezone=User.timezone)
+                )
+            self.got_lock = True
+        except Exception:  # lock_timeout: someone still holds the row
+            self.got_lock = False
+        return json.dumps({"commands": [add("ซื้อนม", "2026-10-16")]})
+
+
+def test_no_row_lock_is_held_while_the_model_thinks(make_user_id):
+    alice = make_user_id()
+
+    async def scenario(sessions):
+        model = SlowModel(sessions, alice)
+        await say(sessions, alice, "พรุ่งนี้ซื้อนมหน่อย", handler=make_handler(model))
+
+        assert model.got_lock is True
+        [row] = await replies_to(sessions, alice)
+        assert "ซื้อนม" in row.messages[0]["text"]  # the task was still saved
 
     run_committed(scenario)

@@ -6,9 +6,13 @@ Order of understanding (cheapest and most predictable first):
 2. The language model — only when 1 did not understand, and its answer is
    validated (app/ai/interpreter.py) before it can change anything.
 
-Runs inside the inbox transaction, so the task change and the
-reply in the outbox are committed together — or not at all.
+The task change and the reply in the outbox are committed together — or not at
+all. The slow part (waiting for the model) happens between two short
+transactions, so no database connection or row lock is held while it runs:
+  prepare (transaction) -> think (no transaction) -> finish (transaction)
 """
+
+from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,7 +27,6 @@ from app.services import limit_service as limits
 from app.services import privacy_service as privacy
 from app.services import task_service as tasks
 from app.services.dates import local_now, local_today
-from app.services.inbox_service import Handler
 from app.services.limit_service import Limits
 from app.services.outbox_service import queue_reply
 
@@ -35,15 +38,47 @@ MOCK = MockProvider()
 DEFAULT_LIMITS = Limits()
 
 
+@dataclass(frozen=True)
+class Ask:
+    """The model must be asked before we can act. Everything it needs is here."""
+
+    text: str
+    context: ExtractContext
+    provider: LLMProvider
+
+
+class BotHandler:
+    """prepare -> think -> finish. Calling it runs all three in one session
+    (simple; used by tests). The inbox runs them in separate transactions."""
+
+    def __init__(self, prepare, think, finish):
+        self.prepare, self.think, self.finish = prepare, think, finish
+
+    @staticmethod
+    def is_slow(step) -> bool:
+        """True when `think` has to wait for the model."""
+        return isinstance(step, Ask)
+
+    async def __call__(
+        self, session: AsyncSession, user: User, event: InboundEvent
+    ) -> None:
+        step = await self.prepare(session, user, event)
+        if self.is_slow(step):
+            step = await self.think(step)
+        if step is not None:
+            await self.finish(session, user, event, step)
+
+
 def make_handler(
     provider: LLMProvider, limit: Limits = DEFAULT_LIMITS, liff_id: str | None = None
-) -> Handler:
+) -> BotHandler:
 
     liff_url = f"https://liff.line.me/{liff_id}" if liff_id else None
 
-    async def handle_event(
+    async def prepare(
         session: AsyncSession, user: User, event: InboundEvent
-    ) -> None:
+    ) -> Plan | Ask | None:
+        """Everything quick. Returns None (done), a Plan (ready to run) or an Ask."""
         if event.event_type == "unfollow":  # the user blocked the bot
             await privacy.set_active(session, user, False)
             return
@@ -67,17 +102,26 @@ def make_handler(
         command = await _answer_pending(session, user, event, text)
         if isinstance(command, dict):  # the answer itself needs a reply only
             await queue_reply(session, user, event, [command])
-            return
+            return None
         if command is None:
             command = parse_command(text)
-        plan = Plan((command,))
-        if command.action == "unknown":
-            model = provider
-            if not await limits.take_ai_call(
-                session, user, event.event_ts, limit.ai_per_day
-            ):
-                model = MOCK  # today's AI budget is used up: rules only, free
-            plan = await _ask_model(session, user, event, text, model)
+        if command.action != "unknown":
+            return Plan((command,))
+        model = provider
+        if not await limits.take_ai_call(
+            session, user, event.event_ts, limit.ai_per_day
+        ):
+            model = MOCK  # today's AI budget is used up: rules only, free
+        return Ask(text, await _context(session, user, event), model)
+
+    async def think(ask: Ask) -> Plan:
+        """Wait for the model. No database transaction is open here."""
+        plan, _ = await interpret_plan(ask.text, ask.context, ask.provider)
+        return plan
+
+    async def finish(
+        session: AsyncSession, user: User, event: InboundEvent, plan: Plan
+    ) -> None:
         if len(plan.commands) == 1 and not plan.skipped:  # the usual case
             reply, critical = await _run(
                 session, user, event, plan.commands[0], liff_url
@@ -85,25 +129,26 @@ def make_handler(
         elif plan.commands:  # several tasks, or some part was not understood
             reply, critical = await _run_batch(session, user, event, plan)
         elif plan.skipped and all(x.past for x in plan.skipped):
-            reply, critical = replies.text(replies.PAST_DATE, replies.MAIN_BUTTONS), False
+            reply, critical = (
+                replies.text(replies.PAST_DATE, replies.MAIN_BUTTONS),
+                False,
+            )
         else:
             reply, critical = await _run(session, user, event, Command("unknown"))
         await queue_reply(session, user, event, [reply], critical=critical)
 
-    return handle_event
+    return BotHandler(prepare, think, finish)
 
 
-async def _ask_model(session, user, event, text, provider) -> Plan:
+async def _context(session, user, event) -> ExtractContext:
     open_tasks = await tasks.list_open_tasks(session, user.id)
     sent_at = local_now(event.event_ts, user.timezone)  # when the user wrote it
-    context = ExtractContext(
+    return ExtractContext(
         today=sent_at.date(),
         timezone=user.timezone,
         open_tasks=[_open_task(t, user.timezone) for t in open_tasks],
         now=sent_at.time().replace(second=0, microsecond=0),
     )
-    plan, _ = await interpret_plan(text, context, provider)
-    return plan
 
 
 def _open_task(task, tz: str) -> OpenTask:
@@ -178,7 +223,9 @@ async def _run_batch(session, user, event, plan: Plan) -> tuple[dict, bool]:
     if past:
         names = ", ".join(f"“{x.label}”" for x in past if x.label)
         extra = f": {names}" if names else ""
-        body += f"\n\n⚠ วันที่ผ่านไปแล้ว {len(past)} รายการ{extra}\nยังไม่ได้บันทึก ลองระบุวันใหม่นะครับ"
+        body += (
+            f"\n\n⚠ วันที่ผ่านไปแล้ว {len(past)} รายการ{extra}\nยังไม่ได้บันทึก ลองระบุวันใหม่นะครับ"
+        )
     if unclear:
         names = ", ".join(f"“{x.label}”" for x in unclear if x.label)
         extra = f": {names}" if names else ""
