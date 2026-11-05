@@ -21,6 +21,7 @@ from tests.helpers import run_committed
 
 BKK = ZoneInfo("Asia/Bangkok")
 NOON = datetime(2026, 10, 15, 12, 0, tzinfo=BKK)
+EARLY = datetime(2026, 10, 15, 4, 0, tzinfo=BKK)  # before every time a test asks about
 
 
 @pytest.fixture
@@ -269,14 +270,14 @@ def test_ambiguous_time_asks_first_then_saves_the_answer(make_user_id):
     alice = make_user_id()
 
     async def scenario(sessions):
-        await say(sessions, alice, "หกโมงประชุมทีม")
+        await say(sessions, alice, "หกโมงประชุมทีม", EARLY)
 
         [question] = await replies_to(sessions, alice)
         assert question.messages[0]["text"] == "⏰ ประชุมทีม (พฤ. 15 ต.ค.) กี่โมงครับ?"
         assert buttons(question) == ["06:00", "18:00", "ยกเลิก"]
         assert await tasks_of(sessions, alice) == []
 
-        await say(sessions, alice, "18:00", NOON + timedelta(minutes=1))
+        await say(sessions, alice, "18:00", EARLY + timedelta(minutes=1))
 
         [task] = await tasks_of(sessions, alice)
         assert task.title == "ประชุมทีม"
@@ -293,9 +294,9 @@ def test_pending_question_belongs_to_one_user(make_user_id):
     alice, bob = make_user_id(), make_user_id()
 
     async def scenario(sessions):
-        await say(sessions, alice, "หกโมงประชุมทีม")
-        await say(sessions, bob, "18:00", NOON + timedelta(seconds=5))
-        await say(sessions, alice, "06:00", NOON + timedelta(seconds=10))
+        await say(sessions, alice, "หกโมงประชุมทีม", EARLY)
+        await say(sessions, bob, "18:00", EARLY + timedelta(seconds=5))
+        await say(sessions, alice, "06:00", EARLY + timedelta(seconds=10))
 
         assert await tasks_of(sessions, bob) == []
         [task] = await tasks_of(sessions, alice)
@@ -308,9 +309,9 @@ def test_cancel_clears_the_question(make_user_id):
     alice = make_user_id()
 
     async def scenario(sessions):
-        await say(sessions, alice, "หกโมงประชุมทีม")
-        await say(sessions, alice, "ยกเลิก", NOON + timedelta(seconds=5))
-        await say(sessions, alice, "18:00", NOON + timedelta(seconds=10))
+        await say(sessions, alice, "หกโมงประชุมทีม", EARLY)
+        await say(sessions, alice, "ยกเลิก", EARLY + timedelta(seconds=5))
+        await say(sessions, alice, "18:00", EARLY + timedelta(seconds=10))
 
         assert await tasks_of(sessions, alice) == []
         assert texts(await replies_to(sessions, alice))[1] == "ยกเลิกแล้วครับ"
@@ -322,8 +323,8 @@ def test_expired_question_is_not_answered(make_user_id):
     alice = make_user_id()
 
     async def scenario(sessions):
-        await say(sessions, alice, "หกโมงประชุมทีม")
-        await say(sessions, alice, "18:00", NOON + timedelta(minutes=11))
+        await say(sessions, alice, "หกโมงประชุมทีม", EARLY)
+        await say(sessions, alice, "18:00", EARLY + timedelta(minutes=11))
 
         assert await tasks_of(sessions, alice) == []
         assert texts(await replies_to(sessions, alice))[-1].startswith(
@@ -337,9 +338,9 @@ def test_new_topic_drops_the_question(make_user_id):
     alice = make_user_id()
 
     async def scenario(sessions):
-        await say(sessions, alice, "หกโมงประชุมทีม")
-        await say(sessions, alice, "เพิ่มงาน อ่าน paper", NOON + timedelta(seconds=5))
-        await say(sessions, alice, "18:00", NOON + timedelta(seconds=10))
+        await say(sessions, alice, "หกโมงประชุมทีม", EARLY)
+        await say(sessions, alice, "เพิ่มงาน อ่าน paper", EARLY + timedelta(seconds=5))
+        await say(sessions, alice, "18:00", EARLY + timedelta(seconds=10))
 
         assert [t.title for t in await tasks_of(sessions, alice)] == ["อ่าน paper"]
 

@@ -158,6 +158,22 @@ def _ask_time(intent: AiIntent, context: ExtractContext) -> Command:
     if intent.due_time is not None:
         raise Rejected("both due_time and time_options")
     day = _parse_day(intent.due_date, context) if intent.due_date else context.today
+    if context.now is not None and day == context.today:
+        ahead = tuple(t for t in options if time.fromisoformat(t) > context.now)
+        if not ahead:  # every option has passed today: ask about tomorrow instead
+            day += timedelta(days=1)
+        elif len(ahead) == 1:  # only one still makes sense: no need to ask
+            return Command(
+                "add",
+                title=intent.title.strip(),
+                due_at=datetime.combine(
+                    day, time.fromisoformat(ahead[0]), ZoneInfo(context.timezone)
+                ),
+                priority=intent.priority,
+                estimated_minutes=intent.estimated_minutes,
+            )
+        else:
+            options = ahead
     return Command(
         "ask_time",
         title=intent.title.strip(),

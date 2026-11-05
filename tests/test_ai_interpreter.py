@@ -454,3 +454,40 @@ def test_changing_only_the_time_to_one_that_passed_moves_to_tomorrow_when_today(
 
     # the task's own day is today and 09:00 has passed: tomorrow, not the past
     assert command.due_at == datetime(2026, 10, 29, 9, 0, tzinfo=BKK)
+
+
+# --- time questions never offer a time that has already passed ---------------
+
+
+def ask(*options, due_date=None):
+    return as_json(
+        action="add", title="นัดลูกค้า", due_date=due_date, time_options=list(options)
+    )
+
+
+def test_time_question_today_drops_the_options_that_have_passed():
+    command = validate(ask("09:00", "15:00", "18:00"), AFTERNOON)  # now is 14:00
+
+    assert command.action == "ask_time"
+    assert command.time_options == ("15:00", "18:00")
+
+
+def test_time_question_with_one_option_left_just_saves_it():
+    command = validate(ask("09:00", "15:00"), AFTERNOON)
+
+    assert command.action == "add"
+    assert command.due_at == datetime(2026, 10, 28, 15, 0, tzinfo=BKK)
+
+
+def test_time_question_with_every_option_passed_asks_about_tomorrow():
+    command = validate(ask("08:00", "13:00"), AFTERNOON)
+
+    assert command.action == "ask_time"
+    assert command.due_date == date(2026, 10, 29)
+    assert command.time_options == ("08:00", "13:00")
+
+
+def test_time_question_for_another_day_keeps_all_options():
+    command = validate(ask("09:00", "15:00", due_date="2026-10-30"), AFTERNOON)
+
+    assert command.time_options == ("09:00", "15:00")

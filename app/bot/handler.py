@@ -269,6 +269,7 @@ async def _run(
                 body,
                 [
                     (f"เสร็จ #{task.task_no}", f"#{task.task_no} เสร็จ"),
+                    (f"ลบ #{task.task_no}", f"ลบ {task.task_no}"),
                     ("งานทั้งหมด", "งานทั้งหมด"),
                 ],
             ), True
