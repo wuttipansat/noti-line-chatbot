@@ -66,140 +66,140 @@ CASES = [
     Case("ส่งใบเสนอราคา 30พย", "add", "2026-11-30", None, "ใบเสนอราคา"),
     Case("31ตค ปาร์ตี้ฮาโลวีน", "add", "2026-10-31", None, "ฮาโลวีน"),
     # weekday and day shortcuts
-    # Case("พุธหน้า ส่งสไลด์", "add", "2026-11-04", None, "สไลด์"),
-    # Case("ส. ไปตลาดนัด", "add", "2026-10-31", None, "ตลาดนัด"),
-    # Case("ศุกร์นี้ ส่งงวด 2", "add", "2026-10-30", None, "งวด"),
-    # Case("มะรืน ซักผ้าห่ม", "add", "2026-10-30", None, "ซักผ้า"),
-    # Case("อีก 3 วัน คืนหนังสือ", "add", "2026-10-31", None, "หนังสือ"),
-    # Case("สิ้นเดือน ต่อ พรบ.", "add", "2026-10-31", None, "พรบ"),
-    # # time shortcuts
-    # Case("พรุ่งนี้ 8น ซ้อมใหญ่", "add", "2026-10-29", "08:00", "ซ้อม"),
-    # Case("พรุ่งนี้ 4 โมงเย็น รับของ", "add", "2026-10-29", "16:00", "รับของ"),
-    # Case("พรุ่ง 3ทุ่ม โทรหาพี่", "add", "2026-10-29", "21:00", "โทรหาพี่"),
-    # Case(
-    #     "ตี 4 ไปสนามบิน", "add", "2026-10-29", "04:00", "สนามบิน", note="passed: tomorrow"
-    # ),
-    # Case("บ่าย 4 โมงครึ่ง นัดลูกค้า", "add", "2026-10-28", "16:30", "นัดลูกค้า"),
-    # Case("5ทุ่ม ปิดบัญชี", "add", "2026-10-28", "23:00", "ปิดบัญชี"),
-    # Case(
-    #     "10โมงเช้า ประชุมสาย",
-    #     "add",
-    #     "2026-10-29",
-    #     "10:00",
-    #     "ประชุมสาย",
-    #     note="passed: tomorrow",
-    # ),
-    # # finished, lazily
-    # Case("paper อ่านเสร็จละ", "done", task_no=1),
-    # Case("เสร็จ 3", "done", task_no=3),
-    # Case("ส่งรายงานเรียบร้อย", "done", task_no=3),
-    # Case("เมื่อวาน 9 โมง ประชุม", "unknown", note="a day that is over"),
-    # # asking, lazily
-    # Case("วันนี้ต้องทำอะไร", "today"),
-    # Case("งานค้างทั้งหมด", "all"),
-    # Case("ใช้ยังไง", "help"),
-    # # noise: must never become a task
-    # Case("วันนี้ 9 โมง ประชุม", "add", "2026-10-29", "09:00", "ประชุม", note="9:00 passed at 14:00"),
-    # Case("👍🏻", "unknown"),
-    # Case("เลื่อนส่งรายงานเป็นเมื่อวาน", "unknown", note="never move into the past"),
-    # Case("วันศุกร์", "unknown", note="a day with no task"),
-    # # change and delete: the task comes from the open list
-    # Case("ไม่ทำงาน 3 แล้ว ลบทิ้ง", "delete", task_no=3),
-    # Case("ลบอ่าน paper ออก", "delete", task_no=1),
-    # Case("ลบงาน 9", "unknown", note="#9 is not this user's open task"),
-    # Case("เลื่อนงานซักผ้าเป็นเสาร์", "unknown", note="no open task called that"),
-    # Case("ย้าย paper ไปวันจันทร์หน้า", "update", "2026-11-02", None, task_no=1),
-    # Case(
-    #     "ส่งรายงานเลื่อนไปวันอาทิตย์",
-    #     "update",
-    #     "2026-11-01",
-    #     "14:00",
-    #     task_no=3,
-    #     note="keeps 14:00",
-    # ),
-    # Case(
-    #     "เลื่อนส่งรายงานออกไป 3 วัน",
-    #     "update",
-    #     "2026-11-02",
-    #     "14:00",
-    #     task_no=3,
-    #     note="due 10-30 + 3",
-    # ),
-    # Case("แก้ชื่อ paper เป็น paper บทที่ 5", "update", None, None, "บทที่ 5", task_no=1),
-    # # several tasks in one message
-    # Case(
-    #     "ซื้อไข่, จ่ายค่าน้ำ, ล้างแอร์ พรุ่งนี้",
-    #     "add",
-    #     note="one day for all three",
-    #     items=(
-    #         Case("", "add", "2026-10-29", None, "ไข่"),
-    #         Case("", "add", "2026-10-29", None, "ค่าน้ำ"),
-    #         Case("", "add", "2026-10-29", None, "แอร์"),
-    #     ),
-    # ),
-    # Case(
-    #     "พรุ่ง 8โมง ฟิตเนส บ่ายสอง ประชุม",
-    #     "add",
-    #     items=(
-    #         Case("", "add", "2026-10-29", "08:00", "ฟิตเนส"),
-    #         Case("", "add", "2026-10-29", "14:00", "ประชุม"),
-    #     ),
-    # ),
-    # Case(
-    #     "ส่งแบบ 20พย แล้ว ส่งงวดสอง 5ธค",
-    #     "add",
-    #     items=(
-    #         Case("", "add", "2026-11-20", None, "ส่งแบบ"),
-    #         Case("", "add", "2026-12-05", None, "งวดสอง"),
-    #     ),
-    # ),
-    # Case(
-    #     "1) ซื้อกาแฟ\n2) โทรหาช่างศุกร์นี้\n3) เติมน้ำมันพรุ่งนี้บ่ายสี่",
-    #     "add",
-    #     items=(
-    #         Case("", "add", None, None, "กาแฟ"),
-    #         Case("", "add", "2026-10-30", None, "ช่าง"),
-    #         Case("", "add", "2026-10-29", "16:00", "น้ำมัน"),
-    #     ),
-    # ),
-    # Case(
-    #     "paper เสร็จแล้ว พรุ่งนี้พาแมวไปหาหมอ",
-    #     "add",
-    #     note="done + add",
-    #     items=(Case("", "done", task_no=1), Case("", "add", "2026-10-29", None, "แมว")),
-    # ),
-    # Case(
-    #     "เลื่อนส่งรายงานไปศุกร์หน้า ซื้อผงซักฟอก",
-    #     "add",
-    #     note="update + add",
-    #     items=(
-    #         Case("", "update", "2026-11-06", "14:00", task_no=3),
-    #         Case("", "add", None, None, "ผงซักฟอก"),
-    #     ),
-    # ),
-    # Case(
-    #     "จ่ายค่าโทรศัพท์ พรุ่งนี้, ทำบัตรประชาชน ศุกร์",
-    #     "add",
-    #     items=(
-    #         Case("", "add", "2026-10-29", None, "ค่าโทรศัพท์"),
-    #         Case("", "add", "2026-10-30", None, "บัตร"),
-    #     ),
-    # ),
-    # Case("ซื้อผัก หมู ปลา", "add", None, None, "ซื้อ", note="one errand = one task"),
-    # Case(
-    #     "จบทั้ง 1 และ 3 แล้ว",
-    #     "done",
-    #     items=(Case("", "done", task_no=1), Case("", "done", task_no=3)),
-    # ),
-    # Case(
-    #     "จ่ายค่าส่วนกลาง 2ธค ส่งแบบประเมิน 5ธค ต่ออายุโดเมน 9ธค",
-    #     "add",
-    #     items=(
-    #         Case("", "add", "2026-12-02", None, "ค่าส่วนกลาง"),
-    #         Case("", "add", "2026-12-05", None, "แบบประเมิน"),
-    #         Case("", "add", "2026-12-09", None, "โดเมน"),
-    #     ),
-    # ),
+    Case("พุธหน้า ส่งสไลด์", "add", "2026-11-04", None, "สไลด์"),
+    Case("ส. ไปตลาดนัด", "add", "2026-10-31", None, "ตลาดนัด"),
+    Case("ศุกร์นี้ ส่งงวด 2", "add", "2026-10-30", None, "งวด"),
+    Case("มะรืน ซักผ้าห่ม", "add", "2026-10-30", None, "ซักผ้า"),
+    Case("อีก 3 วัน คืนหนังสือ", "add", "2026-10-31", None, "หนังสือ"),
+    Case("สิ้นเดือน ต่อ พรบ.", "add", "2026-10-31", None, "พรบ"),
+    # time shortcuts
+    Case("พรุ่งนี้ 8น ซ้อมใหญ่", "add", "2026-10-29", "08:00", "ซ้อม"),
+    Case("พรุ่งนี้ 4 โมงเย็น รับของ", "add", "2026-10-29", "16:00", "รับของ"),
+    Case("พรุ่ง 3ทุ่ม โทรหาพี่", "add", "2026-10-29", "21:00", "โทรหาพี่"),
+    Case(
+        "ตี 4 ไปสนามบิน", "add", "2026-10-29", "04:00", "สนามบิน", note="passed: tomorrow"
+    ),
+    Case("บ่าย 4 โมงครึ่ง นัดลูกค้า", "add", "2026-10-28", "16:30", "นัดลูกค้า"),
+    Case("5ทุ่ม ปิดบัญชี", "add", "2026-10-28", "23:00", "ปิดบัญชี"),
+    Case(
+        "10โมงเช้า ประชุมสาย",
+        "add",
+        "2026-10-29",
+        "10:00",
+        "ประชุมสาย",
+        note="passed: tomorrow",
+    ),
+    # finished, lazily
+    Case("paper อ่านเสร็จละ", "done", task_no=1),
+    Case("เสร็จ 3", "done", task_no=3),
+    Case("ส่งรายงานเรียบร้อย", "done", task_no=3),
+    Case("เมื่อวาน 9 โมง ประชุม", "unknown", note="a day that is over"),
+    # asking, lazily
+    Case("วันนี้ต้องทำอะไร", "today"),
+    Case("งานค้างทั้งหมด", "all"),
+    Case("ใช้ยังไง", "help"),
+    # noise: must never become a task
+    Case("วันนี้ 9 โมง ประชุม", "add", "2026-10-29", "09:00", "ประชุม", note="9:00 passed at 14:00"),
+    Case("👍🏻", "unknown"),
+    Case("เลื่อนส่งรายงานเป็นเมื่อวาน", "unknown", note="never move into the past"),
+    Case("วันศุกร์", "unknown", note="a day with no task"),
+    # change and delete: the task comes from the open list
+    Case("ไม่ทำงาน 3 แล้ว ลบทิ้ง", "delete", task_no=3),
+    Case("ลบอ่าน paper ออก", "delete", task_no=1),
+    Case("ลบงาน 9", "unknown", note="#9 is not this user's open task"),
+    Case("เลื่อนงานซักผ้าเป็นเสาร์", "unknown", note="no open task called that"),
+    Case("ย้าย paper ไปวันจันทร์หน้า", "update", "2026-11-02", None, task_no=1),
+    Case(
+        "ส่งรายงานเลื่อนไปวันอาทิตย์",
+        "update",
+        "2026-11-01",
+        "14:00",
+        task_no=3,
+        note="keeps 14:00",
+    ),
+    Case(
+        "เลื่อนส่งรายงานออกไป 3 วัน",
+        "update",
+        "2026-11-02",
+        "14:00",
+        task_no=3,
+        note="due 10-30 + 3",
+    ),
+    Case("แก้ชื่อ paper เป็น paper บทที่ 5", "update", None, None, "บทที่ 5", task_no=1),
+    # several tasks in one message
+    Case(
+        "ซื้อไข่, จ่ายค่าน้ำ, ล้างแอร์ พรุ่งนี้",
+        "add",
+        note="one day for all three",
+        items=(
+            Case("", "add", "2026-10-29", None, "ไข่"),
+            Case("", "add", "2026-10-29", None, "ค่าน้ำ"),
+            Case("", "add", "2026-10-29", None, "แอร์"),
+        ),
+    ),
+    Case(
+        "พรุ่ง 8โมง ฟิตเนส บ่ายสอง ประชุม",
+        "add",
+        items=(
+            Case("", "add", "2026-10-29", "08:00", "ฟิตเนส"),
+            Case("", "add", "2026-10-29", "14:00", "ประชุม"),
+        ),
+    ),
+    Case(
+        "ส่งแบบ 20พย แล้ว ส่งงวดสอง 5ธค",
+        "add",
+        items=(
+            Case("", "add", "2026-11-20", None, "ส่งแบบ"),
+            Case("", "add", "2026-12-05", None, "งวดสอง"),
+        ),
+    ),
+    Case(
+        "1) ซื้อกาแฟ\n2) โทรหาช่างศุกร์นี้\n3) เติมน้ำมันพรุ่งนี้บ่ายสี่",
+        "add",
+        items=(
+            Case("", "add", None, None, "กาแฟ"),
+            Case("", "add", "2026-10-30", None, "ช่าง"),
+            Case("", "add", "2026-10-29", "16:00", "น้ำมัน"),
+        ),
+    ),
+    Case(
+        "paper เสร็จแล้ว พรุ่งนี้พาแมวไปหาหมอ",
+        "add",
+        note="done + add",
+        items=(Case("", "done", task_no=1), Case("", "add", "2026-10-29", None, "แมว")),
+    ),
+    Case(
+        "เลื่อนส่งรายงานไปศุกร์หน้า ซื้อผงซักฟอก",
+        "add",
+        note="update + add",
+        items=(
+            Case("", "update", "2026-11-06", "14:00", task_no=3),
+            Case("", "add", None, None, "ผงซักฟอก"),
+        ),
+    ),
+    Case(
+        "จ่ายค่าโทรศัพท์ พรุ่งนี้, ทำบัตรประชาชน ศุกร์",
+        "add",
+        items=(
+            Case("", "add", "2026-10-29", None, "ค่าโทรศัพท์"),
+            Case("", "add", "2026-10-30", None, "บัตร"),
+        ),
+    ),
+    Case("ซื้อผัก หมู ปลา", "add", None, None, "ซื้อ", note="one errand = one task"),
+    Case(
+        "จบทั้ง 1 และ 3 แล้ว",
+        "done",
+        items=(Case("", "done", task_no=1), Case("", "done", task_no=3)),
+    ),
+    Case(
+        "จ่ายค่าส่วนกลาง 2ธค ส่งแบบประเมิน 5ธค ต่ออายุโดเมน 9ธค",
+        "add",
+        items=(
+            Case("", "add", "2026-12-02", None, "ค่าส่วนกลาง"),
+            Case("", "add", "2026-12-05", None, "แบบประเมิน"),
+            Case("", "add", "2026-12-09", None, "โดเมน"),
+        ),
+    ),
 ]
 
 
