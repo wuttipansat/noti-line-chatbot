@@ -155,3 +155,25 @@ def test_prompt_has_a_calendar_to_copy_dates_from():
     assert "2026-10-28 พุธ วันนี้ สัปดาห์นี้" in user
     assert "2026-11-06 ศุกร์ สัปดาห์หน้า" in user
     assert "2026-10-31 สิ้นเดือนนี้" in user
+
+
+def test_open_tasks_show_their_current_deadline_to_the_model():
+    from datetime import date, time
+
+    from app.ai.prompt import user_message
+
+    context = ExtractContext(
+        today=date(2026, 10, 18),
+        timezone="Asia/Bangkok",
+        open_tasks=[
+            OpenTask(1, "อ่าน paper"),
+            OpenTask(3, "ส่งรายงาน", date(2026, 10, 20), time(14, 0)),
+            OpenTask(4, "จ่ายค่าไฟ", date(2026, 10, 25)),
+        ],
+    )
+
+    text = user_message("x", context)
+
+    assert "#1 อ่าน paper\n" in text
+    assert "#3 ส่งรายงาน (due 2026-10-20 14:00)" in text
+    assert "#4 จ่ายค่าไฟ (due 2026-10-25)" in text

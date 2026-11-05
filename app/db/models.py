@@ -191,6 +191,7 @@ class ConversationState(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('clarify_time', 'confirm_forget')", name="kind_allowed"
+            "kind IN ('clarify_time', 'confirm_forget', 'confirm_delete')",
+            name="kind_allowed",
         ),
     )

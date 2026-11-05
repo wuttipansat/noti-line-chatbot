@@ -156,3 +156,25 @@ def test_two_tasks_where_one_was_expected_is_wrong():
     plan = _plan(_add("นม", None), _add("ไข่", day))
 
     assert check_plan(case, plan) == ["2 tasks (expected 1)"]
+
+
+# Words that are commands, not sample messages: a test case may of course contain them.
+COMMAND_WORDS = {
+    "done", "จบแล้ว", "จะส่ง", "ต้องส่ง", "ลืมส่ง", "ส่งแล้ว", "เสร็จแล้ว",
+    "ยกเลิก", "ย้าย", "ลบ", "เปลี่ยน", "เลื่อน", "แก้", "เลื่อนไปอีก N วัน",
+}  # fmt: skip
+
+
+def test_no_case_is_copied_from_the_system_prompt():
+    import re
+
+    from app.ai.prompt import SYSTEM_PROMPT
+
+    quoted = set(re.findall(r'"([^"]+)"', SYSTEM_PROMPT))
+    samples = {q for q in quoted if q not in COMMAND_WORDS and len(q) > 2}
+    samples -= {"commands"}  # the JSON key, not a message
+
+    texts = [c.text for c in CASES] + [i.text for c in CASES for i in c.items]
+    leaked = [(t, q) for t in texts for q in samples if q and q in t]
+
+    assert leaked == []

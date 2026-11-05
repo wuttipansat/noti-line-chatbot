@@ -22,7 +22,9 @@ def _pad_time(value):
 
 Time = Annotated[str, BeforeValidator(_pad_time), Field(pattern=HHMM)]
 
-AiAction = Literal["add", "done", "today", "week", "all", "help", "unknown"]
+AiAction = Literal[
+    "add", "done", "update", "delete", "today", "week", "all", "help", "unknown"
+]
 
 
 class AiIntent(BaseModel):
@@ -36,3 +38,5 @@ class AiIntent(BaseModel):
     priority: int = Field(default=2, ge=1, le=3)
     estimated_minutes: int | None = Field(default=None, ge=1, le=1440)
     time_options: list[Time] = Field(default_factory=list, max_length=3)
+    # update only: move the deadline by N days (the program adds it, not the model)
+    shift_days: int | None = Field(default=None, ge=-365, le=365)

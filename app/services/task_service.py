@@ -168,6 +168,28 @@ async def update_task(
     return task
 
 
+async def change_task(
+    session: AsyncSession,
+    user_id: int,
+    task_no: int,
+    *,
+    title: str | None = None,
+    due_date: date | None = None,
+    due_at: datetime | None = None,
+) -> Task:
+    """Change only what is given (the chat's edit). A new deadline replaces the old one."""
+    task = await get_task(session, user_id, task_no)
+    if title is not None:
+        task.title = _clean_title(title)
+    if due_date is not None or due_at is not None:
+        _check_fields(task.priority, None, due_date, due_at)
+        task.due_date = due_date
+        task.due_at = due_at
+    task.version += 1
+    await session.flush()
+    return task
+
+
 async def reopen_task(session: AsyncSession, user_id: int, task_no: int) -> Task:
     """Undo "done" (the calendar's undo button)."""
     task = await get_task(session, user_id, task_no)

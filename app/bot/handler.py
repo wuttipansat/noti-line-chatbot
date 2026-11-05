@@ -29,6 +29,7 @@ from app.services.outbox_service import queue_reply
 
 SLOW_DOWN = "ส่งข้อความเร็วเกินไปครับ 🙏 รอสักครู่แล้วค่อยส่งใหม่นะครับ"
 CONFIRM_FORGET = "ยืนยันลบข้อมูล"
+CONFIRM_DELETE = "ยืนยันลบ #{}"
 FORGOTTEN = "🗑 ลบข้อมูลทั้งหมดของคุณแล้วครับ\nพิมพ์งานใหม่เมื่อไหร่ก็เริ่มใช้ต่อได้เลย"
 MOCK = MockProvider()
 DEFAULT_LIMITS = Limits()
@@ -83,6 +84,8 @@ def make_handler(
             )
         elif plan.commands:  # several tasks, or some part was not understood
             reply, critical = await _run_batch(session, user, event, plan)
+        elif plan.skipped and all(x.past for x in plan.skipped):
+            reply, critical = replies.text(replies.PAST_DATE, replies.MAIN_BUTTONS), False
         else:
             reply, critical = await _run(session, user, event, Command("unknown"))
         await queue_reply(session, user, event, [reply], critical=critical)
@@ -96,11 +99,19 @@ async def _ask_model(session, user, event, text, provider) -> Plan:
     context = ExtractContext(
         today=sent_at.date(),
         timezone=user.timezone,
-        open_tasks=[OpenTask(t.task_no, t.title) for t in open_tasks],
+        open_tasks=[_open_task(t, user.timezone) for t in open_tasks],
         now=sent_at.time().replace(second=0, microsecond=0),
     )
     plan, _ = await interpret_plan(text, context, provider)
     return plan
+
+
+def _open_task(task, tz: str) -> OpenTask:
+    """What the model may know about a task: number, name and current deadline."""
+    if task.due_at is not None:
+        local = local_now(task.due_at, tz)
+        return OpenTask(task.task_no, task.title, local.date(), local.time())
+    return OpenTask(task.task_no, task.title, task.due_date)
 
 
 async def _run_batch(session, user, event, plan: Plan) -> tuple[dict, bool]:
@@ -138,6 +149,21 @@ async def _run_batch(session, user, event, plan: Plan) -> tuple[dict, bool]:
                     continue
                 lines.append(f"✅ #{task.task_no} {task.title} เสร็จแล้ว")
                 saved += 1
+            case "update":
+                try:
+                    task = await tasks.change_task(
+                        session,
+                        user.id,
+                        command.task_no,
+                        title=command.title,
+                        due_date=command.due_date,
+                        due_at=command.due_at,
+                    )
+                except (tasks.TaskNotFound, tasks.InvalidTask):
+                    lines.append(f"⚠ แก้ #{command.task_no} ไม่ได้")
+                    continue
+                lines.append("✏️ " + replies.task_line(task, tz, show_day=True))
+                saved += 1
             case "ask_time":  # at most one per message (the interpreter makes sure)
                 await conversation.ask_time(session, user.id, event, command)
                 day = replies.thai_date(command.due_date)
@@ -146,8 +172,13 @@ async def _run_batch(session, user, event, plan: Plan) -> tuple[dict, bool]:
 
     head = f"📝 จัดการให้ {len(plan.commands)} รายการ"
     body = "\n".join([head, *lines])
-    unclear = [x for x in plan.skipped if not x.too_many]
+    past = [x for x in plan.skipped if x.past]
+    unclear = [x for x in plan.skipped if not x.too_many and not x.past]
     over = [x for x in plan.skipped if x.too_many]
+    if past:
+        names = ", ".join(f"“{x.label}”" for x in past if x.label)
+        extra = f": {names}" if names else ""
+        body += f"\n\n⚠ วันที่ผ่านไปแล้ว {len(past)} รายการ{extra}\nยังไม่ได้บันทึก ลองระบุวันใหม่นะครับ"
     if unclear:
         names = ", ".join(f"“{x.label}”" for x in unclear if x.label)
         extra = f": {names}" if names else ""
@@ -194,6 +225,46 @@ async def _run(
                     ("งานทั้งหมด", "งานทั้งหมด"),
                 ],
             ), True
+
+        case "update":
+            try:
+                task = await tasks.change_task(
+                    session,
+                    user.id,
+                    command.task_no,
+                    title=command.title,
+                    due_date=command.due_date,
+                    due_at=command.due_at,
+                )
+            except tasks.TaskNotFound:
+                return replies.text(
+                    f"ไม่พบงาน #{command.task_no} ครับ", [("งานทั้งหมด", "งานทั้งหมด")]
+                ), False
+            except tasks.InvalidTask:
+                return replies.text("แก้งานนี้ไม่ได้ครับ ลองพิมพ์ใหม่อีกครั้ง"), False
+            return replies.text(
+                "✏️ แก้แล้ว " + replies.task_line(task, tz, show_day=True),
+                [
+                    (f"เสร็จ #{task.task_no}", f"#{task.task_no} เสร็จ"),
+                    ("งานทั้งหมด", "งานทั้งหมด"),
+                ],
+            ), True
+
+        case "delete":
+            try:
+                task = await tasks.get_task(session, user.id, command.task_no)
+            except tasks.TaskNotFound:
+                return replies.text(
+                    f"ไม่พบงาน #{command.task_no} ครับ", [("งานทั้งหมด", "งานทั้งหมด")]
+                ), False
+            await conversation.ask_delete_confirmation(
+                session, user.id, event, task.task_no, task.title
+            )
+            confirm = CONFIRM_DELETE.format(task.task_no)
+            return replies.text(
+                f"🗑 ลบงาน #{task.task_no} {task.title} ใช่ไหมครับ?",
+                [(confirm, confirm), ("ยกเลิก", "ยกเลิก")],
+            ), False
 
         case "ask_time":
             await conversation.ask_time(session, user.id, event, command)
@@ -262,9 +333,12 @@ async def _answer_pending(session, user, event, text) -> Command | dict | None:
         return None
     if text == "ยกเลิก":
         return replies.text("ยกเลิกแล้วครับ", replies.MAIN_BUTTONS)
-    expected = (
-        [CONFIRM_FORGET] if state.kind == "confirm_forget" else state.payload["options"]
-    )
+    if state.kind == "confirm_forget":
+        expected = [CONFIRM_FORGET]
+    elif state.kind == "confirm_delete":
+        expected = [CONFIRM_DELETE.format(state.payload["task_no"])]
+    else:
+        expected = state.payload["options"]
     if text not in expected:
         return None  # unrelated message: handle it normally
     if event.event_ts > state.expires_at:
@@ -274,6 +348,15 @@ async def _answer_pending(session, user, event, text) -> Command | dict | None:
     if state.kind == "confirm_forget":
         await privacy.forget_user(session, user, event)
         return replies.text(FORGOTTEN)
+    if state.kind == "confirm_delete":
+        try:
+            await tasks.delete_task(session, user.id, state.payload["task_no"])
+        except tasks.TaskNotFound:
+            return replies.text("ไม่พบงานนี้แล้วครับ", replies.MAIN_BUTTONS)
+        title = state.payload["title"]
+        return replies.text(
+            f"🗑 ลบ #{state.payload['task_no']} {title} แล้ว", [("งานทั้งหมด", "งานทั้งหมด")]
+        )
     return conversation.answer_time(state, text, user.timezone)
 
 

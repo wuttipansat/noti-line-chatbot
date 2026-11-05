@@ -565,3 +565,169 @@ def test_one_time_question_in_a_batch_is_asked_after_the_others_are_saved(make_u
         assert "ประชุมทีม" in second
 
     run_committed(scenario)
+
+
+async def open_titles(sessions, line_user_id) -> list[str]:
+    async with sessions() as session:
+        user = await tasks.get_or_create_user(session, line_user_id)
+        return [t.title for t in await tasks.list_open_tasks(session, user.id)]
+
+
+def test_delete_asks_first_and_deletes_only_after_the_button(make_user_id):
+    alice = make_user_id()
+
+    async def scenario(sessions):
+        await say(sessions, alice, "เพิ่มงาน อ่าน paper")
+        await say(sessions, alice, "ลบ 1", NOON + timedelta(seconds=5))
+
+        assert await open_titles(sessions, alice) == ["อ่าน paper"]  # still there
+        ask = (await replies_to(sessions, alice))[-1]
+        assert "ลบงาน #1 อ่าน paper ใช่ไหมครับ?" in ask.messages[0]["text"]
+        labels = [i["action"]["label"] for i in ask.messages[0]["quickReply"]["items"]]
+        assert labels == ["ยืนยันลบ #1", "ยกเลิก"]
+
+        await say(sessions, alice, "ยืนยันลบ #1", NOON + timedelta(seconds=10))
+
+        assert await open_titles(sessions, alice) == []
+        assert "🗑 ลบ #1 อ่าน paper แล้ว" in texts(await replies_to(sessions, alice))[-1]
+
+    run_committed(scenario)
+
+
+def test_cancelling_a_delete_keeps_the_task(make_user_id):
+    alice = make_user_id()
+
+    async def scenario(sessions):
+        await say(sessions, alice, "เพิ่มงาน อ่าน paper")
+        await say(sessions, alice, "ลบ 1", NOON + timedelta(seconds=5))
+        await say(sessions, alice, "ยกเลิก", NOON + timedelta(seconds=10))
+
+        assert await open_titles(sessions, alice) == ["อ่าน paper"]
+
+    run_committed(scenario)
+
+
+def test_another_message_clears_the_delete_question(make_user_id):
+    alice = make_user_id()
+
+    async def scenario(sessions):
+        await say(sessions, alice, "เพิ่มงาน อ่าน paper")
+        await say(sessions, alice, "ลบ 1", NOON + timedelta(seconds=5))
+        await say(sessions, alice, "งานวันนี้", NOON + timedelta(seconds=10))
+        await say(sessions, alice, "ยืนยันลบ #1", NOON + timedelta(seconds=15))
+
+        assert await open_titles(sessions, alice) == ["อ่าน paper"]  # not deleted
+
+    run_committed(scenario)
+
+
+def test_an_old_delete_question_has_expired(make_user_id):
+    alice = make_user_id()
+
+    async def scenario(sessions):
+        await say(sessions, alice, "เพิ่มงาน อ่าน paper")
+        await say(sessions, alice, "ลบ 1", NOON + timedelta(seconds=5))
+        await say(sessions, alice, "ยืนยันลบ #1", NOON + timedelta(minutes=11))
+
+        assert await open_titles(sessions, alice) == ["อ่าน paper"]
+        assert "หมดเวลาแล้ว" in texts(await replies_to(sessions, alice))[-1]
+
+    run_committed(scenario)
+
+
+def test_nobody_can_delete_someone_elses_task(make_user_id):
+    alice, bob = make_user_id(), make_user_id()
+
+    async def scenario(sessions):
+        await say(sessions, alice, "เพิ่มงาน งานของอลิซ")
+        await say(sessions, bob, "ลบ 1")  # bob has no task #1
+
+        assert texts(await replies_to(sessions, bob)) == ["ไม่พบงาน #1 ครับ"]
+        await say(sessions, bob, "ยืนยันลบ #1", NOON + timedelta(seconds=5))
+        assert await open_titles(sessions, alice) == ["งานของอลิซ"]
+
+    run_committed(scenario)
+
+
+def test_the_model_can_move_a_task_and_the_time_is_kept(make_user_id):
+    alice = make_user_id()
+    model = scripted(
+        {"commands": [{"action": "update", "task_no": 1, "shift_days": 2}]}
+    )
+
+    async def scenario(sessions):
+        await say(sessions, alice, "พรุ่งนี้บ่ายสองส่งรายงาน")  # 16 Oct 14:00
+        await say(
+            sessions,
+            alice,
+            "เลื่อนไปอีกสองวัน",
+            NOON + timedelta(seconds=5),
+            make_handler(model),
+        )
+
+        row = (await replies_to(sessions, alice))[-1]
+        assert row.messages[0]["text"] == "✏️ แก้แล้ว #1 ส่งรายงาน · อา. 18 ต.ค. 14:00"
+        assert row.critical is True
+
+    run_committed(scenario)
+
+
+def test_update_and_add_in_one_message(make_user_id):
+    alice = make_user_id()
+    model = scripted(
+        {
+            "commands": [
+                {"action": "update", "task_no": 1, "title": "อ่าน paper บทที่ 2"},
+                add("ซื้อนม", "2026-10-16"),
+            ]
+        }
+    )
+
+    async def scenario(sessions):
+        await say(sessions, alice, "เพิ่มงาน อ่าน paper")
+        await say(
+            sessions, alice, "สองอย่าง", NOON + timedelta(seconds=5), make_handler(model)
+        )
+
+        body = texts(await replies_to(sessions, alice))[-1]
+        assert "✏️ #1 อ่าน paper บทที่ 2" in body
+        assert "➕ #2 ซื้อนม" in body
+
+    run_committed(scenario)
+
+
+def test_a_past_day_is_not_saved_and_the_user_is_told(make_user_id):
+    alice = make_user_id()
+    model = scripted({"commands": [add("ประชุม", "2026-10-10")]})
+
+    async def scenario(sessions):
+        handler = make_handler(model)
+        await say(sessions, alice, "10 ต.ค. ประชุม", handler=handler)
+
+        [row] = await replies_to(sessions, alice)
+        assert "ผ่านไปแล้ว" in row.messages[0]["text"]
+        async with sessions() as session:
+            saved = await session.scalars(
+                select(Task.title).join(User).where(User.line_user_id == alice)
+            )
+        assert list(saved) == []
+
+    run_committed(scenario)
+
+
+def test_in_a_batch_the_past_one_is_named_and_the_other_is_saved(make_user_id):
+    alice = make_user_id()
+    model = scripted(
+        {"commands": [add("ส่งรายงาน", "2026-10-16"), add("ประชุม", "2026-10-10")]}
+    )
+
+    async def scenario(sessions):
+        handler = make_handler(model)
+        await say(sessions, alice, "พรุ่งนี้ส่งรายงาน กับประชุมเมื่อวันที่ 10", handler=handler)
+
+        [row] = await replies_to(sessions, alice)
+        body = row.messages[0]["text"]
+        assert "➕ #1 ส่งรายงาน" in body
+        assert "ผ่านไปแล้ว 1 รายการ: “ประชุม”" in body
+
+    run_committed(scenario)

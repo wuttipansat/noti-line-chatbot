@@ -28,12 +28,21 @@ logger = logging.getLogger(__name__)
 MAX_DAYS_AHEAD = 366 * 2
 MAX_COMMANDS = 5  # tasks kept from one message
 MAX_RAW_COMMANDS = 20  # more than this in one answer = not a believable answer
-BATCH_ACTIONS = {"add", "done", "ask_time"}  # the only ones that can be combined
+BATCH_ACTIONS = {
+    "add",
+    "done",
+    "update",
+    "ask_time",
+}  # the only ones that can be combined
 CODE_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
 
 
 class Rejected(ValueError):
     """The model's answer broke a rule. The message says which (for logs only)."""
+
+
+class PastDeadline(Rejected):
+    """The deadline is a day that is already over."""
 
 
 @dataclass(frozen=True)
@@ -43,6 +52,7 @@ class Skipped:
     label: str | None  # the task's title, when the model gave one
     reason: str  # for logs and evals; never shown to the user
     too_many: bool = False  # True: valid, but over MAX_COMMANDS
+    past: bool = False  # True: the deadline is a day that is already over
 
 
 @dataclass(frozen=True)
@@ -64,18 +74,32 @@ def _parse_day(value: str, context: ExtractContext) -> date:
         day = date.fromisoformat(value)
     except ValueError as exc:
         raise Rejected(f"not a real date: {value!r}") from exc
+    return _check_range(day, context)
+
+
+def _check_range(day: date, context: ExtractContext) -> date:
     if day < context.today:
-        raise Rejected("deadline in the past")
+        raise PastDeadline("deadline in the past")
     if day > context.today + timedelta(days=MAX_DAYS_AHEAD):
         raise Rejected("deadline too far ahead")
     return day
 
 
+def _not_in_the_past(day: date, clock: time | None, context: ExtractContext) -> date:
+    """Today at a time that has already passed means tomorrow."""
+    if (
+        clock is not None
+        and context.now is not None
+        and day == context.today
+        and clock <= context.now
+    ):
+        return day + timedelta(days=1)
+    return day
+
+
 def _day_for_time_only(due_time: str, context: ExtractContext) -> date:
     """ "บ่ายสามโทรหาลูกค้า": today, or tomorrow if that time has already passed."""
-    if context.now is not None and time.fromisoformat(due_time) <= context.now:
-        return context.today + timedelta(days=1)
-    return context.today
+    return _not_in_the_past(context.today, time.fromisoformat(due_time), context)
 
 
 def _parse_due(
@@ -87,12 +111,43 @@ def _parse_due(
         day = _day_for_time_only(intent.due_time, context)
     else:
         day = _parse_day(intent.due_date, context)
+        if intent.due_time is not None:
+            day = _not_in_the_past(day, time.fromisoformat(intent.due_time), context)
     if intent.due_time is None:
         return day, None
     local = datetime.combine(
         day, time.fromisoformat(intent.due_time), ZoneInfo(context.timezone)
     )
     return None, local
+
+
+def _update(intent: AiIntent, context: ExtractContext) -> Command:
+    """Change one open task. The program works out the new deadline, never the model."""
+    task = next((t for t in context.open_tasks if t.task_no == intent.task_no), None)
+    if task is None:
+        raise Rejected(f"task #{intent.task_no} is not one of this user's open tasks")
+    title = intent.title.strip() if intent.title else None
+    changes_day = intent.due_date is not None or intent.shift_days is not None
+    if intent.due_date is not None and intent.shift_days is not None:
+        raise Rejected("both due_date and shift_days")
+    if not title and not changes_day and intent.due_time is None:
+        raise Rejected("update changes nothing")
+    if not changes_day and intent.due_time is None:
+        return Command("update", title=title, task_no=task.task_no)
+
+    if intent.due_date is not None:
+        day = _parse_day(intent.due_date, context)
+    elif intent.shift_days is not None:
+        day = (task.due_date or context.today) + timedelta(days=intent.shift_days)
+        _check_range(day, context)
+    else:  # only a new time: keep the day (a task with no day: today, or tomorrow)
+        day = task.due_date or _day_for_time_only(intent.due_time, context)
+    clock = time.fromisoformat(intent.due_time) if intent.due_time else task.due_time
+    day = _not_in_the_past(day, clock, context)
+    if clock is None:
+        return Command("update", title=title, task_no=task.task_no, due_date=day)
+    due_at = datetime.combine(day, clock, ZoneInfo(context.timezone))
+    return Command("update", title=title, task_no=task.task_no, due_at=due_at)
 
 
 def _ask_time(intent: AiIntent, context: ExtractContext) -> Command:
@@ -130,6 +185,15 @@ def _command(intent: AiIntent, context: ExtractContext) -> Command:
                 priority=intent.priority,
                 estimated_minutes=intent.estimated_minutes,
             )
+        case "update":
+            return _update(intent, context)
+        case "delete":
+            mine = {t.task_no for t in context.open_tasks}
+            if intent.task_no not in mine:
+                raise Rejected(
+                    f"task #{intent.task_no} is not one of this user's open tasks"
+                )
+            return Command("delete", task_no=intent.task_no)
         case "done":
             mine = {t.task_no for t in context.open_tasks}
             if intent.task_no not in mine:
@@ -184,7 +248,9 @@ def validate_plan(raw: str, context: ExtractContext) -> Plan:
             )
             continue
         except Rejected as exc:
-            skipped.append(Skipped(_label(item), str(exc)))
+            skipped.append(
+                Skipped(_label(item), str(exc), past=isinstance(exc, PastDeadline))
+            )
             continue
         if command in commands:
             continue  # the same task twice: keep one

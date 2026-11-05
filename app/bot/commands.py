@@ -11,6 +11,8 @@ Action = Literal[
     "week",
     "all",
     "done",
+    "update",
+    "delete",
     "privacy",
     "forget_me",
     "unknown",
@@ -37,6 +39,7 @@ PRIVACY_WORDS = {"ข้อมูลส่วนตัว", "ความเป�
 FORGET_WORDS = {"ลบข้อมูลของฉัน", "ลบข้อมูลทั้งหมด"}
 CALENDAR_WORDS = {"ปฏิทิน", "เปิดปฏิทิน", "calendar"}
 
+DELETE = re.compile(r"^(?:ลบงาน|ลบ|delete)\s*#?(?P<n>\d+)$", re.IGNORECASE)
 ADD = re.compile(r"^(?:เพิ่มงาน|เพิ่ม|add)\s*(?P<title>.*)$", re.IGNORECASE)
 DONE = re.compile(
     r"^(?:#(?P<a>\d+)\s*(?:เสร็จแล้ว|เสร็จ|done)"
@@ -65,6 +68,8 @@ def parse_command(text: str) -> Command:
         return Command("calendar")
     if match := DONE.match(cleaned):
         return Command("done", task_no=int(match["a"] or match["b"]))
+    if match := DELETE.match(cleaned):
+        return Command("delete", task_no=int(match["n"]))
     if match := ADD.match(cleaned):
         return Command("add", title=match["title"].strip())
     return Command("unknown")

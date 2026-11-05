@@ -59,6 +59,14 @@ async def ask_forget_confirmation(
     await _save_state(session, user_id, event, "confirm_forget", {})
 
 
+async def ask_delete_confirmation(
+    session: AsyncSession, user_id: int, event: InboundEvent, task_no: int, title: str
+) -> None:
+    """Deleting a task cannot be undone from the chat: wait for an explicit "yes"."""
+    payload = {"task_no": task_no, "title": title}
+    await _save_state(session, user_id, event, "confirm_delete", payload)
+
+
 async def pop_state(session: AsyncSession, user_id: int) -> ConversationState | None:
     """Take the pending question out (delete + return it): it is answered only once."""
     return await session.scalar(

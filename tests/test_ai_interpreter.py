@@ -307,3 +307,150 @@ def test_interpret_plan_explains_partial_and_failed_answers():
     )
     assert plan.commands == ()
     assert why.startswith("rejected: not a real date")
+
+
+# --- change and delete -------------------------------------------------------------
+DUE = ExtractContext(
+    today=date(2026, 10, 15),
+    timezone="Asia/Bangkok",
+    open_tasks=[
+        OpenTask(1, "อ่าน paper"),  # no deadline
+        OpenTask(3, "ส่งรายงาน", date(2026, 10, 20), time(14, 0)),
+    ],
+)
+
+
+def update(**fields) -> dict:
+    return {"action": "update", "task_no": 3, **fields}
+
+
+def one(item: dict, context=DUE) -> Command:
+    return validate(json.dumps(item, ensure_ascii=False), context)
+
+
+def test_new_day_keeps_the_time_of_the_task():
+    command = one(update(due_date="2026-10-22"))
+
+    assert command == Command(
+        "update", task_no=3, due_at=datetime(2026, 10, 22, 14, 0, tzinfo=BKK)
+    )
+
+
+def test_new_time_keeps_the_day_of_the_task():
+    command = one(update(due_time="16:00"))
+
+    assert command.due_at == datetime(2026, 10, 20, 16, 0, tzinfo=BKK)
+
+
+def test_shift_days_is_added_by_the_program_to_the_current_day():
+    assert one(update(shift_days=2)).due_at == datetime(2026, 10, 22, 14, 0, tzinfo=BKK)
+    # a task with no deadline starts from today, and has no time to keep
+    no_deadline = {"action": "update", "task_no": 1, "shift_days": 2}
+    assert one(no_deadline) == Command("update", task_no=1, due_date=date(2026, 10, 17))
+
+
+def test_new_day_for_a_task_without_a_time_stays_all_day():
+    command = one({"action": "update", "task_no": 1, "due_date": "2026-10-30"})
+
+    assert command == Command("update", task_no=1, due_date=date(2026, 10, 30))
+
+
+def test_rename_only_changes_nothing_else():
+    command = one(update(title=" ส่งรายงานฉบับร่าง "))
+
+    assert command == Command("update", task_no=3, title="ส่งรายงานฉบับร่าง")
+
+
+@pytest.mark.parametrize(
+    ("fields", "why"),
+    [
+        ({}, "changes nothing"),
+        ({"due_date": "2026-10-22", "shift_days": 1}, "both due_date and shift_days"),
+        ({"shift_days": -9}, "deadline in the past"),  # 20 - 9 = 11 < today
+        ({"due_date": "2026-10-01"}, "deadline in the past"),
+        ({"task_no": 9, "shift_days": 1}, "not one of this user's open tasks"),
+    ],
+)
+def test_bad_updates_are_rejected(fields, why):
+    item = {**update(), **fields}
+
+    with pytest.raises(Rejected, match=why):
+        one(item)
+
+
+def test_delete_needs_one_of_the_users_open_tasks():
+    assert one({"action": "delete", "task_no": 3}) == Command("delete", task_no=3)
+    with pytest.raises(Rejected, match="not one of this user's open tasks"):
+        one({"action": "delete", "task_no": 99})
+
+
+def test_update_can_be_combined_but_delete_cannot():
+    raw = many(
+        update(due_date="2026-10-22"),
+        add("ซื้อนม", "2026-10-16"),
+        {"action": "delete", "task_no": 1},
+    )
+
+    plan = validate_plan(raw, DUE)
+
+    assert [c.action for c in plan.commands] == ["update", "add"]
+    assert [x.reason for x in plan.skipped] == [
+        "delete cannot be combined with other tasks"
+    ]
+
+
+# --- past dates and times ---------------------------------------------------
+
+AFTERNOON = ExtractContext(
+    date(2026, 10, 28),
+    "Asia/Bangkok",
+    [OpenTask(3, "ส่งรายงาน", date(2026, 10, 30), time(14, 0))],
+    now=time(14, 0),
+)
+
+
+def test_today_at_a_time_that_has_passed_becomes_tomorrow():
+    raw = as_json(action="add", title="ประชุม", due_date="2026-10-28", due_time="10:00")
+
+    assert validate(raw, AFTERNOON).due_at == datetime(2026, 10, 29, 10, 0, tzinfo=BKK)
+
+
+def test_today_at_a_time_still_ahead_stays_today():
+    raw = as_json(action="add", title="ประชุม", due_date="2026-10-28", due_time="16:00")
+
+    assert validate(raw, AFTERNOON).due_at == datetime(2026, 10, 28, 16, 0, tzinfo=BKK)
+
+
+def test_a_day_that_is_over_is_skipped_and_marked_as_past():
+    raw = many(add("ประชุม", "2026-10-27", due_time="09:00"))
+
+    plan = validate_plan(raw, AFTERNOON)
+
+    assert plan.commands == ()
+    assert [x.past for x in plan.skipped] == [True]
+
+
+def test_other_rejections_are_not_marked_as_past():
+    plan = validate_plan(many(add("")), AFTERNOON)
+
+    assert [x.past for x in plan.skipped] == [False]
+
+
+def test_moving_a_task_into_the_past_is_skipped_as_past():
+    plan = validate_plan(many(update(shift_days=-3)), AFTERNOON)
+
+    assert plan.commands == () and plan.skipped[0].past
+
+
+def test_changing_only_the_time_to_one_that_passed_moves_to_tomorrow_when_today():
+    context = ExtractContext(
+        date(2026, 10, 28),
+        "Asia/Bangkok",
+        [OpenTask(3, "ส่งรายงาน", date(2026, 10, 28), time(18, 0))],
+        now=time(14, 0),
+    )
+
+    command = validate_plan(many(update(due_time="09:00")), context).commands[0]
+
+    # the task's own day is today and 09:00 has passed: tomorrow, not the past
+    assert command.due_at == datetime(2026, 10, 29, 9, 0, tzinfo=BKK)

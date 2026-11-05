@@ -13,6 +13,8 @@ from typing import Protocol
 class OpenTask:
     task_no: int
     title: str
+    due_date: date | None = None  # local day, when the task has a deadline
+    due_time: time | None = None  # local clock time, when it has one
 
 
 @dataclass(frozen=True)

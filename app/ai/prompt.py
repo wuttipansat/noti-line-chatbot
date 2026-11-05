@@ -2,7 +2,7 @@ import calendar
 import json
 from datetime import date, timedelta
 
-from app.ai.provider import ExtractContext
+from app.ai.provider import ExtractContext, OpenTask
 
 THAI_DAYS = ["จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์", "อาทิตย์"]
 NEAR = {0: "วันนี้", 1: "พรุ่งนี้", 2: "มะรืนนี้"}
@@ -13,7 +13,17 @@ INTENT_SCHEMA = {
     "properties": {
         "action": {
             "type": "string",
-            "enum": ["add", "done", "today", "week", "all", "help", "unknown"],
+            "enum": [
+                "add",
+                "done",
+                "update",
+                "delete",
+                "today",
+                "week",
+                "all",
+                "help",
+                "unknown",
+            ],
         },
         "title": {"type": ["string", "null"]},
         "task_no": {"type": ["integer", "null"]},
@@ -22,6 +32,7 @@ INTENT_SCHEMA = {
         "priority": {"type": "integer"},
         "estimated_minutes": {"type": ["integer", "null"]},
         "time_options": {"type": "array", "items": {"type": "string"}},
+        "shift_days": {"type": ["integer", "null"]},
     },
     "required": [
         "action",
@@ -32,6 +43,7 @@ INTENT_SCHEMA = {
         "priority",
         "estimated_minutes",
         "time_options",
+        "shift_days",
     ],
     "additionalProperties": False,
 }
@@ -48,7 +60,7 @@ SYSTEM_PROMPT = """\
 Turn one Thai chat message into commands for a personal task bot.
 Reply only with JSON: {"commands": [ ... ]}, each item matching the schema.
 
-Actions: add | done | today | week | all | help | unknown
+Actions: add | done | update | delete | today | week | all | help | unknown
 - add: a task. title = short name in the user's words, no date/time words.
   due_date YYYY-MM-DD and due_time HH:MM (24h), user's local time; null if not given.
   A time with no day still sets due_time; due_date stays null even if it already passed.
@@ -56,14 +68,20 @@ Actions: add | done | today | week | all | help | unknown
 - done: an OPEN TASK (task_no from the list) is FINISHED ("เสร็จแล้ว", "จบแล้ว", "ส่งแล้ว",
   "done"). "ลืมส่ง", "ต้องส่ง", "จะส่ง" = not done. A sentence with a task name AND a day or
   time is an add, even when the name matches an open task.
+- update: change ONE open task ("เลื่อน", "เปลี่ยน", "แก้", "ย้าย"). task_no from the list,
+  found by number or by name. title = the NEW name, only when renaming. A new day: due_date
+  (from the Calendar) and/or due_time. "เลื่อนไปอีก N วัน": shift_days = N (never work out the
+  date yourself). Leave unchanged things null; shift_days and due_date are never both set.
+- delete: remove ONE open task ("ลบ", "ยกเลิก" + a task). task_no from the list; we ask the
+  user to confirm. If no open task matches the name or number, it is unknown.
 - today / week / all: show tasks due today / in 7 days / all open. help: what the bot does.
-- unknown: anything else, or unsure. Never guess. Also unknown: a day or time alone with no
-  task; any message that changes or removes a task ("เลื่อน", "ยกเลิก", "แก้", "ลบ", "เปลี่ยน").
+- unknown: anything else, or unsure. Never guess. Also unknown: a day or time alone with no task.
 
-Several tasks: one add (or done) per task, in the order written, at most 20. Never merge two
+Several tasks: one add, done or update per task, in the order written, at most 20. Never merge two
 tasks or drop one. A list of things for one errand ("ซื้อนม ไข่ ขนมปัง") is one task. A day
-written once for the whole message applies to the tasks without their own day. today, week,
-all, help and unknown are never combined: the list then holds only that one.
+written once for the whole message applies to the tasks without their own day; if no day
+is written at all, no task gets one, even when a time has already passed today. today, week,
+all, help, unknown and delete are never combined: the list then holds only that one.
 Examples (today is Wed 2026-10-28):
   "พรุ่งนี้ส่งรายงาน แล้วศุกร์ประชุมทีม" -> add ส่งรายงาน 2026-10-29; add ประชุมทีม 2026-10-30
   "ซื้อนม ล้างรถ วันนี้" -> add ซื้อนม 2026-10-28; add ล้างรถ 2026-10-28
@@ -73,9 +91,14 @@ Dates: copy them from the Calendar, never calculate.
 - วันศุกร์ / ศุกร์นี้ = the first ศุกร์ in the list (today if today is ศุกร์).
 - ศุกร์หน้า = the ศุกร์ marked สัปดาห์หน้า. อีก N วัน = the line N below วันนี้.
 - สิ้นเดือน = the end-of-month line. Thai year: subtract 543 (2569 or "69" = 2026).
-- A day and month already passed this year = next year. Example (today 2026-10-28):
-  "10 ต.ค." -> 2027-10-10.
-- Shortcuts are normal: weekdays จ อ พ พฤ ศ ส อา (= จันทร์ ... อาทิตย์); months มค กพ มีค เมย
+  A written year always counts: d/m/yy is day/month/year, so "68" = 2025 (a past year).
+- A day and month with no year: this year if it has not passed yet (even later this month);
+  next year only if it has already passed (a date earlier in this year's calendar).
+- A day that is already over (เมื่อวาน, a full date in the past, a past year): the user does not
+  want a task there. Answer unknown. Never move it to next year. Do not use a negative shift_days
+  to reach a past day.
+- Shortcuts are normal: weekdays จ อ พ พฤ ศ ส อา (= จันทร์ ... อาทิตย์; a lone อา next to a
+  task is อาทิตย์); months มค กพ มีค เมย
   พค มิย กค สค กย ตค พย ธค, with or without dots, e.g. "21พย" = 2026-11-21.
 
 Times:
@@ -113,8 +136,17 @@ def calendar_lines(today: date) -> list[str]:
     return lines
 
 
+def _task_line(task: OpenTask) -> str:
+    """ "#3 ส่งรายงาน (due 2026-10-30 14:00)": the model sees the current deadline."""
+    line = f"#{task.task_no} {task.title}"
+    if task.due_date is None:
+        return line
+    clock = f" {task.due_time.strftime('%H:%M')}" if task.due_time else ""
+    return f"{line} (due {task.due_date.isoformat()}{clock})"
+
+
 def _context_block(context: ExtractContext) -> str:
-    tasks = "\n".join(f"#{t.task_no} {t.title}" for t in context.open_tasks) or "(none)"
+    tasks = "\n".join(_task_line(t) for t in context.open_tasks) or "(none)"
     now = f" {context.now.strftime('%H:%M')}" if context.now else ""
     return (
         f"Now (user's local time): {context.today.isoformat()}{now}\n"
